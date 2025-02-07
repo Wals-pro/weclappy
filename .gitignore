@@ -73,3 +73,6 @@ Desktop.ini
 
 # Others
 *.pid
+
+# Environment variables
+.env
