@@ -20,14 +20,14 @@ The goal of this library is to provide a minimal, threaded client that handles p
 Install the package via pip:
 
 ```bash
-pip install weclapp
+pip install weclappy
 ```
 
 ## Quick Start
 
 ```python
 
-from weclapp import Weclapp
+from weclappy import Weclapp
 
 # Initialize the client with your base URL and API key
 client = Weclapp("https://acme.weclapp.com/webapp/api/v1", "your_api_key")
@@ -47,6 +47,28 @@ updated_sales_order = client.put("salesOrder", id="12345", data={ "commission": 
 # Delete an entity, e.g., 'salesOrder' with ID '12345'
 client.delete("salesOrder", id="12345")
 
+```
+
+## Examples
+
+You can find useful examples in the examples folder. Make sure to create a virtual environment and install the dependencies first and prepare your environment file that holds your weclapp url and api key.
+
+```
+cd examples
+python3 -m venv venv
+
+# On a Unix-based system
+source venv/bin/activate
+
+# On a Windows system
+venv\Scripts\activate
+
+pip install -r requirements.txt
+
+# Copy the .env.example file to .env and fill in your weclapp url and api key
+
+# Run the example of your choice, in this case, fetch all sales invoices from weclapp.
+python get_all_sales_invoices.py
 ```
 
 ## Contributing
