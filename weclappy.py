@@ -58,29 +58,57 @@ class Weclapp:
         self.session.mount("http://", adapter)
         self.session.mount("https://", adapter)
 
-    def _send_request(self, method: str, url: str, **kwargs: Any) -> Dict[str, Any]:
+    def _send_request(self, method: str, url: str, **kwargs) -> Union[Dict[str, Any], bytes]:
         """
-        Send an HTTP request and return the JSON response.
+        Send an HTTP request and return parsed content.
 
-        If the response status code is 204 or no content is present, return an empty dict.
+        - If status code is 204 or body is empty, returns {}.
+        - If Content-Type indicates JSON, returns the JSON as a dict.
+        - If Content-Type indicates PDF or binary, returns {'content': <bytes>, 'filename': <str>, 'content_type': <str>}.
+        - Otherwise, attempts to parse JSON; if that fails, returns text content.
 
-        :param method: HTTP method.
-        :param url: URL for the request.
-        :param kwargs: Additional request parameters.
-        :return: JSON response as a dict, or {} for 204 responses.
-        :raises WeclappAPIError: on request failure.
+        :param method: HTTP method (GET, POST, etc.).
+        :param url: Full URL for the request.
+        :param kwargs: Additional request parameters (headers, json=data, params, etc.).
+        :return: Dict or binary dict structure (for files).
+        :raises WeclappAPIError: if the request fails or returns non-2xx status.
         """
         try:
             response = self.session.request(method, url, **kwargs)
             response.raise_for_status()
-            # Return {} if there is no content (204 No Content) or empty body
+
+            # If no content or 204 No Content, return an empty dict
             if response.status_code == 204 or not response.content.strip():
                 return {}
-            else:
+
+            content_type = response.headers.get("Content-Type", "")
+
+            # Handle JSON content
+            if "application/json" in content_type:
                 return response.json()
+
+            # Handle PDF or other binary downloads
+            if any(ct in content_type for ct in ("application/pdf", "application/octet-stream", "binary")):
+                return {
+                    "content": response.content,
+                    "content_type": content_type
+                }
+
+            # Attempt JSON parse if not purely recognized, otherwise return text
+            try:
+                return response.json()
+            except ValueError:
+                return {"content": response.text, "content_type": content_type}
+
         except requests.exceptions.RequestException as e:
             logger.error(f"HTTP {method} request failed for {url}: {e}")
-            raise WeclappAPIError(f"HTTP {method} request failed for {url}: {e}. Details: {response.text}") from e
+            # Use response.text if available for error details
+            error_detail = ""
+            if 'response' in locals():
+                error_detail = response.text
+            raise WeclappAPIError(
+                f"HTTP {method} request failed for {url}: {e}. Details: {error_detail}"
+            ) from e
 
     def get(
         self,
@@ -247,3 +275,33 @@ class Weclapp:
         url = urljoin(self.base_url, new_endpoint)
         logger.debug(f"DELETE {url} with params {params}")
         return self._send_request("DELETE", url, params=params)
+    
+    def call_method(
+        self,
+        entity: str,
+        action: str,
+        entity_id: str = None,
+        method: str = "GET",
+        data: dict = None,
+        params: dict = None
+    ) -> Dict[str, Any]:
+        """
+        Calls any API method dynamically by constructing the URL from the given entity, action, and (optional) ID.
+
+        :param entity: The entity name (e.g., 'salesInvoice' or 'salesOrder').
+        :param action: The action/method to perform (e.g., 'downloadLatestSalesInvoicePdf' or 'createPrepaymentFinalInvoice').
+        :param entity_id: (Optional) ID of the entity if needed.
+        :param method: HTTP method ('GET' or 'POST' supported).
+        :param data: (Optional) JSON payload for POST requests.
+        :param params: (Optional) Query parameters for GET requests.
+        :return: JSON response (dict) or empty dict for 204, or downloaded file content if PDF/binary.
+        """
+        path = f"{entity}/id/{entity_id}/{action}" if entity_id else f"{entity}/{action}"
+        url = urljoin(self.base_url, path)
+
+        method = method.upper()
+        if method not in ("GET", "POST"):
+            raise ValueError("Only GET and POST methods are supported by call_method().")
+
+        # Reuse the unified request approach
+        return self._send_request(method, url, json=data, params=params)

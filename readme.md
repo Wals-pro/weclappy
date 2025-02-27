@@ -47,6 +47,20 @@ updated_sales_order = client.put("salesOrder", id="12345", data={ "commission": 
 # Delete an entity, e.g., 'salesOrder' with ID '12345'
 client.delete("salesOrder", id="12345")
 
+# Get an invoice PDF
+pdf_response = client.call_method("salesInvoice", "downloadLatestSalesInvoicePdf", sales_invoice["id"], method="GET")
+# { "content": b"...", "content-type": "application/pdf" }
+
+if "content" in pdf_response:
+    pdf_bytes = pdf_response["content"]
+    filename = "Rechnung.pdf"
+
+    # Save the PDF to disk
+    with open(filename, "wb") as f:
+        f.write(pdf_bytes)
+else:
+    # Otherwise, it's likely an error
+    print("Response:", pdf_response)
 ```
 
 ## Examples
