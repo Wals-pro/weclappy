@@ -1,7 +1,3 @@
-"""
-A Python client for the Weclapp API.
-"""
-
 import math
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -12,13 +8,10 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-# Module-level constants
-DEFAULT_PAGE_SIZE = 1000
-DEFAULT_MAX_WORKERS = 10
-
-# Module-level logger
 logger = logging.getLogger(__name__)
 
+DEFAULT_PAGE_SIZE = 1000
+DEFAULT_MAX_WORKERS = 10
 
 class WeclappAPIError(Exception):
     """Custom exception for Weclapp API errors."""
@@ -30,15 +23,20 @@ class Weclapp:
     Client for interacting with the Weclapp API.
     """
 
-    base_url: str
-    session: requests.Session
-
-    def __init__(self, base_url: str, api_key: str) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str,
+        pool_connections: int = 100,
+        pool_maxsize: int = 100
+    ) -> None:
         """
         Initialize the Weclapp client.
-
-        :param base_url: Base URL for the API.
-        :param api_key: Authentication token.
+        
+        :param base_url: Base URL for the API, e.g. 'https://myorg.weclapp.com/webapp/api/v1/'.
+        :param api_key: Authentication token / API key for the Weclapp instance.
+        :param pool_connections: Total number of connection pools to maintain (default=100).
+        :param pool_maxsize: Maximum number of connections per pool (default=100).
         """
         self.base_url = base_url.rstrip('/') + '/'
         self.session = requests.Session()
@@ -47,14 +45,22 @@ class Weclapp:
             "AuthenticationToken": api_key
         })
 
-        # Configure HTTP retry strategy.
+        # Configure HTTP retry strategy
         retry_strategy = Retry(
             total=3,
             backoff_factor=0.3,
             status_forcelist=[500, 502, 503, 504],
             allowed_methods=["HEAD", "GET", "OPTIONS", "POST", "PUT", "DELETE"]
         )
-        adapter = HTTPAdapter(max_retries=retry_strategy)
+
+        # Create an adapter with bigger pool size
+        adapter = HTTPAdapter(
+            max_retries=retry_strategy,
+            pool_connections=pool_connections,
+            pool_maxsize=pool_maxsize,
+        )
+
+        # Mount the adapter
         self.session.mount("http://", adapter)
         self.session.mount("https://", adapter)
 
@@ -236,7 +242,7 @@ class Weclapp:
         logger.debug(f"POST {url} - Data: {data}")
         return self._send_request("POST", url, json=data)
 
-    def put(self, endpoint: str, data: Dict[str, Any], params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def put(self, endpoint: str, id: str, data: Dict[str, Any], params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         Perform a PUT request to the given endpoint.
 
@@ -248,7 +254,7 @@ class Weclapp:
         """
         params = params.copy() if params is not None else {}
         params.setdefault("ignoreMissingProperties", True)
-        url = urljoin(self.base_url, endpoint)
+        url = urljoin(self.base_url, endpoint, "id", id)
         logger.debug(f"PUT {url} - Data: {data} - Params: {params}")
         return self._send_request("PUT", url, json=data, params=params)
 
