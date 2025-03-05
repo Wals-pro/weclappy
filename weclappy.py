@@ -254,7 +254,7 @@ class Weclapp:
         """
         params = params.copy() if params is not None else {}
         params.setdefault("ignoreMissingProperties", True)
-        url = urljoin(self.base_url, endpoint, "id", id)
+        url = urljoin(self.base_url, f"{endpoint}/id/{id}")
         logger.debug(f"PUT {url} - Data: {data} - Params: {params}")
         return self._send_request("PUT", url, json=data, params=params)
 
