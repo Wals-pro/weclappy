@@ -84,19 +84,6 @@ sales_order_response = client.get_all(
     return_weclapp_response=True
 )
 
-# You can also use arrays and join them if you're building the parameters dynamically:
-# properties = ["customer", "positions"]
-# referenced_entities = ["customerId", "positions.articleId"]
-# sales_order_response = client.get_all(
-#     "salesOrder",
-#     limit=10,
-#     params={
-#         "additionalProperties": ",".join(properties),
-#         "includeReferencedEntities": ",".join(referenced_entities)
-#     },
-#     return_weclapp_response=True
-# )
-
 # Access the main result
 sales_order = sales_order_response.result
 print(f"Sales Order: {sales_order['orderNumber']}")
@@ -124,7 +111,7 @@ The `get_all` method supports threaded pagination, which can significantly impro
 sales_orders = client.get_all("salesOrder", threaded=True, max_workers=10)
 ```
 
-By default, `max_workers` is set to 10, but you can adjust this based on your needs and API rate limits.
+By default, `max_workers` is set to 10, but you can adjust this based on your needs.
 
 ## Structured Response
 
@@ -171,4 +158,4 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License.
