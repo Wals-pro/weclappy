@@ -16,7 +16,9 @@ DEFAULT_MAX_WORKERS = 10
 
 class WeclappAPIError(Exception):
     """Custom exception for Weclapp API errors."""
-    pass
+    def __init__(self, message, response=None):
+        super().__init__(message)
+        self.response = response
 
 
 @dataclass
@@ -47,7 +49,6 @@ class WeclappResponse:
         Returns:
             A WeclappResponse instance with parsed data.
         """
-        logging.debug(f"Creating WeclappResponse from API response: {response_data}")
         result = response_data.get('result', [])
         additional_properties = response_data.get('additionalProperties')
 
@@ -117,6 +118,24 @@ class Weclapp:
         self.session.mount("http://", adapter)
         self.session.mount("https://", adapter)
 
+    def _check_response(self, response):
+        """Check if the response is valid and raise an exception if not.
+
+        :param response: Response object from requests.
+        :raises WeclappAPIError: if the request fails or returns non-2xx status.
+        """
+        try:
+            response.raise_for_status()
+        except requests.exceptions.HTTPError as e:
+            error_message = str(e)
+            try:
+                error_data = response.json()
+                if isinstance(error_data, dict) and 'error' in error_data:
+                    error_message = f"{error_message} - {error_data['error']}"
+            except (ValueError, KeyError):
+                pass
+            raise WeclappAPIError(error_message, response=response) from e
+
     def _send_request(self, method: str, url: str, **kwargs) -> Union[Dict[str, Any], bytes]:
         """
         Send an HTTP request and return parsed content.
@@ -134,7 +153,7 @@ class Weclapp:
         """
         try:
             response = self.session.request(method, url, **kwargs)
-            response.raise_for_status()
+            self._check_response(response)
 
             # If no content or 204 No Content, return an empty dict
             if response.status_code == 204 or not response.content.strip():

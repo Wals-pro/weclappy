@@ -146,6 +146,12 @@ pip install -r requirements.txt
    ```
    Comprehensive example showing how to use both additionalProperties and referencedEntities with the article endpoint, including detailed handling of stock quantities, prices, and related entities.
 
+4. **Threaded Fetching with 25 Threads**
+   ```
+   python get_all_sales_orders_threaded.py
+   ```
+   Demonstrates how to fetch all salesOrders using threaded fetching with 25 threads, comparing performance with sequential fetching and showing how to work with the results.
+
 ## Testing
 
 The library includes comprehensive tests to verify all functionality:
