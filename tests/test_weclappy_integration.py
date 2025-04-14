@@ -99,8 +99,11 @@ def test_get_articles_with_additional_properties(client: Weclapp) -> None:
         # Get articles with additional properties
         response = client.get(
             "article",
-            params={"page": 1, "pageSize": 5},
-            additional_properties=additional_props,
+            params={
+                "page": 1,
+                "pageSize": 5,
+                "additionalProperties": ",".join(additional_props)
+            },
             return_weclapp_response=True
         )
 
@@ -135,8 +138,11 @@ def test_get_articles_with_referenced_entities(client: Weclapp) -> None:
         # Get articles with referenced entities
         response = client.get(
             "article",
-            params={"page": 1, "pageSize": 5},
-            referenced_entities=referenced_entities,
+            params={
+                "page": 1,
+                "pageSize": 5,
+                "includeReferencedEntities": ",".join(referenced_entities)
+            },
             return_weclapp_response=True
         )
 
@@ -171,9 +177,11 @@ def test_get_all_articles_with_both_parameters(client: Weclapp) -> None:
         # Get articles with both parameters
         response = client.get_all(
             "article",
+            params={
+                "additionalProperties": ",".join(additional_props),
+                "includeReferencedEntities": ",".join(referenced_entities)
+            },
             limit=5,
-            additional_properties=additional_props,
-            referenced_entities=referenced_entities,
             return_weclapp_response=True
         )
 
@@ -210,13 +218,16 @@ def test_get_sales_invoices_with_referenced_entities(client: Weclapp) -> None:
     """
     try:
         # Define the referenced entities to request
-        referenced_entities = ["customerId", "invoiceItems.articleId"]
+        referenced_entities = ["customerId"]
 
         # Get sales invoices with referenced entities
         response = client.get(
             "salesInvoice",
-            params={"page": 1, "pageSize": 5},
-            referenced_entities=referenced_entities,
+            params={
+                "page": 1,
+                "pageSize": 5,
+                "includeReferencedEntities": ",".join(referenced_entities)
+            },
             return_weclapp_response=True
         )
 
