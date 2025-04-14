@@ -1,2 +1,4 @@
 python-dotenv
 weclappy
+pytest
+pytest-cov

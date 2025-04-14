@@ -17,6 +17,8 @@ The goal of this library is to provide a minimal, threaded client that handles p
 ## Features
 
 - **Threaded Pagination:** Fetch multiple pages concurrently for enhanced performance.
+- **Additional Properties & Referenced Entities:** Support for weclapp API's additionalProperties and referencedEntities parameters.
+- **Structured Response:** Optional WeclappResponse class to handle complex API responses.
 - **Minimal Dependencies:** Only dependency is [`requests`](https://pypi.org/project/requests/).
 - **Simplicity:** A lean bloat free solution to interact with the weclapp API.
 - **Open Source:** Free to use in any project, with contributions and improvements highly welcome.
@@ -67,6 +69,42 @@ if "content" in pdf_response:
 else:
     # Otherwise, it's likely an error
     print("Response:", pdf_response)
+
+# Using additionalProperties and referencedEntities
+from weclappy import WeclappResponse
+
+# Get all sales orders with customer details and referenced entities
+sales_order_response = client.get_all(
+    "salesOrder",
+    limit=10,
+    additional_properties=["customer", "positions"],  # List of property names
+    referenced_entities=["customerId", "positions.articleId"],  # List of property paths
+    return_weclapp_response=True
+)
+
+# Alternatively, you can use comma-separated strings for both parameters:
+# sales_order_response = client.get_all(
+#     "salesOrder",
+#     limit=10,
+#     additional_properties="customer,positions",  # Comma-separated string of property names
+#     referenced_entities="customerId,positions.articleId",  # Comma-separated string of property paths
+#     return_weclapp_response=True
+# )
+
+# Access the main result
+sales_order = sales_order_response.result
+print(f"Sales Order: {sales_order['orderNumber']}")
+
+# Access additional properties if available
+if sales_order_response.additional_properties:
+    customer_data = sales_order_response.additional_properties.get("customer")
+    if customer_data:
+        print(f"Customer: {customer_data[0]['name']}")
+
+# Access referenced entities if available
+if sales_order_response.referenced_entities:
+    for entity_type, entities in sales_order_response.referenced_entities.items():
+        print(f"{entity_type}: {len(entities)} entities")
 ```
 
 ## Examples
@@ -86,10 +124,48 @@ venv\Scripts\activate
 pip install -r requirements.txt
 
 # Copy the .env.example file to .env and fill in your weclapp url and api key
-
-# Run the example of your choice, in this case, fetch all sales invoices from weclapp.
-python get_all_sales_invoices.py
 ```
+
+### Available Examples
+
+1. **Basic Usage with Referenced Entities**
+   ```
+   python get_all_sales_invoices.py
+   ```
+   Demonstrates fetching sales invoices with referenced entities and downloading PDFs.
+
+2. **Using additionalProperties and referencedEntities with Articles**
+   ```
+   python get_with_additional_properties.py
+   ```
+   Shows how to fetch articles with both additional properties (like currentSalesPrice, aggregateStock, averagePrice) and referenced entities, using the WeclappResponse class to access the structured data.
+
+3. **Complete Example with Articles**
+   ```
+   python get_articles_with_properties.py
+   ```
+   Comprehensive example showing how to use both additionalProperties and referencedEntities with the article endpoint, including detailed handling of stock quantities, prices, and related entities.
+
+## Testing
+
+The library includes comprehensive tests to verify all functionality:
+
+```bash
+# Install test dependencies
+pip install pytest pytest-cov
+
+# Run unit tests
+python -m pytest tests/test_weclappy_unit.py -v
+
+# Run integration tests (requires API credentials)
+python -m pytest tests/test_weclappy_integration.py -v
+```
+
+See the [tests/README.md](tests/README.md) file for more details on running tests.
+
+## Changelog
+
+See the [CHANGELOG.md](changelog.md) file for details on all changes in each release.
 
 ## Contributing
 
@@ -102,7 +178,7 @@ This project is licensed under the MIT License. Feel free to use it in your comm
 
 # Get in touch
 
-If you are interested in working with us or want us to implement your integrations, then book a call. You can always book a call with me at 
+If you are interested in working with us or want us to implement your integrations, then book a call. You can always book a call with me at
 https://wals.pro/termin.
 
 ## Support

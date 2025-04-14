@@ -3,6 +3,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urljoin
+from dataclasses import dataclass
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -16,6 +17,58 @@ DEFAULT_MAX_WORKERS = 10
 class WeclappAPIError(Exception):
     """Custom exception for Weclapp API errors."""
     pass
+
+
+@dataclass
+class WeclappResponse:
+    """Class to represent a structured response from the Weclapp API.
+
+    This class handles the response structure when using additionalProperties
+    and referencedEntities parameters in API requests.
+
+    Attributes:
+        result: The main result data from the API response.
+        additional_properties: Optional dictionary containing additional properties if requested.
+        referenced_entities: Optional dictionary containing referenced entities if requested.
+        raw_response: The complete raw response from the API.
+    """
+    result: Union[List[Dict[str, Any]], Dict[str, Any]]
+    additional_properties: Optional[Dict[str, Any]] = None
+    referenced_entities: Optional[Dict[str, Any]] = None
+    raw_response: Dict[str, Any] = None
+
+    @classmethod
+    def from_api_response(cls, response_data: Dict[str, Any]) -> 'WeclappResponse':
+        """Create a WeclappResponse instance from an API response dictionary.
+
+        Args:
+            response_data: The raw API response dictionary.
+
+        Returns:
+            A WeclappResponse instance with parsed data.
+        """
+        logging.debug(f"Creating WeclappResponse from API response: {response_data}")
+        result = response_data.get('result', [])
+        additional_properties = response_data.get('additionalProperties')
+
+        # Process referenced entities to convert from list to dictionary by ID
+        raw_referenced_entities = response_data.get('referencedEntities')
+        referenced_entities = None
+
+        if raw_referenced_entities:
+            referenced_entities = {}
+            for entity_type, entities_list in raw_referenced_entities.items():
+                referenced_entities[entity_type] = {}
+                for entity in entities_list:
+                    if 'id' in entity:
+                        referenced_entities[entity_type][entity['id']] = entity
+
+        return cls(
+            result=result,
+            additional_properties=additional_properties,
+            referenced_entities=referenced_entities,
+            raw_response=response_data
+        )
 
 
 class Weclapp:
@@ -32,7 +85,7 @@ class Weclapp:
     ) -> None:
         """
         Initialize the Weclapp client.
-        
+
         :param base_url: Base URL for the API, e.g. 'https://myorg.weclapp.com/webapp/api/v1/'.
         :param api_key: Authentication token / API key for the Weclapp instance.
         :param pool_connections: Total number of connection pools to maintain (default=100).
@@ -120,8 +173,11 @@ class Weclapp:
         self,
         endpoint: str,
         id: Optional[str] = None,
-        params: Optional[Dict[str, Any]] = None
-    ) -> Union[List[Any], Dict[str, Any]]:
+        params: Optional[Dict[str, Any]] = None,
+        additional_properties: Optional[Union[List[str], str]] = None,
+        referenced_entities: Optional[Union[List[str], str]] = None,
+        return_weclapp_response: bool = False
+    ) -> Union[List[Any], Dict[str, Any], WeclappResponse]:
         """
         Perform a GET request. If an id is provided, fetch a single record using the
         URL pattern 'endpoint/id/{id}'. Otherwise, fetch records as a list from the endpoint.
@@ -129,19 +185,55 @@ class Weclapp:
         :param endpoint: API endpoint.
         :param id: Optional identifier to fetch a single record.
         :param params: Query parameters.
+        :param additional_properties: Optional list or comma-separated string of property names to include in additionalProperties.
+                                   Note: This parameter is only used when fetching lists (id=None), not when fetching by ID.
+        :param referenced_entities: Optional list or comma-separated string of property paths (e.g., 'customerId,orderItems.articleId') to include as referenced entities.
+                                  This is passed as the 'includeReferencedEntities' parameter to the API.
+                                  Note: This parameter is only used when fetching lists (id=None), not when fetching by ID.
+        :param return_weclapp_response: If True, returns a WeclappResponse object instead of just the result.
         :return: A single record as a dict if id is provided, or a list of records otherwise.
+                 If return_weclapp_response is True, returns a WeclappResponse object.
         :raises WeclappAPIError: on request failure.
         """
+        params = params.copy() if params is not None else {}
+
+        # Add additionalProperties parameter if provided (only for list endpoints, not for ID lookups)
+        if additional_properties and id is None:
+            if isinstance(additional_properties, list):
+                params['additionalProperties'] = ','.join(additional_properties)
+            else:
+                params['additionalProperties'] = additional_properties
+        elif additional_properties and id is not None:
+            logger.warning("additionalProperties parameter is ignored when fetching by ID")
+
+        # Add includeReferencedEntities parameter if provided (only for list endpoints, not for ID lookups)
+        if referenced_entities and id is None:
+            if isinstance(referenced_entities, list):
+                params['includeReferencedEntities'] = ','.join(referenced_entities)
+            else:
+                params['includeReferencedEntities'] = referenced_entities
+        elif referenced_entities and id is not None:
+            logger.warning("includeReferencedEntities parameter is ignored when fetching by ID")
+
         if id is not None:
             new_endpoint = f"{endpoint}/id/{id}"
             url = urljoin(self.base_url, new_endpoint)
             logger.debug(f"GET single record from {url} with params {params}")
-            return self._send_request("GET", url, params=params)
+            response_data = self._send_request("GET", url, params=params)
         else:
             url = urljoin(self.base_url, endpoint)
             logger.debug(f"GET {url} with params {params}")
-            data = self._send_request("GET", url, params=params)
-            return data.get('result', [])
+            response_data = self._send_request("GET", url, params=params)
+
+        # Return WeclappResponse object if requested
+        if return_weclapp_response:
+            return WeclappResponse.from_api_response(response_data)
+
+        # Otherwise return just the result for backward compatibility
+        if id is not None:
+            return response_data
+        else:
+            return response_data.get('result', [])
 
     def get_all(
         self,
@@ -149,8 +241,11 @@ class Weclapp:
         params: Optional[Dict[str, Any]] = None,
         limit: Optional[int] = None,
         threaded: bool = False,
-        max_workers: int = DEFAULT_MAX_WORKERS
-    ) -> List[Any]:
+        max_workers: int = DEFAULT_MAX_WORKERS,
+        additional_properties: Optional[Union[List[str], str]] = None,
+        referenced_entities: Optional[Union[List[str], str]] = None,
+        return_weclapp_response: bool = False
+    ) -> Union[List[Any], WeclappResponse]:
         """
         Retrieve all records for the given entity with automatic pagination.
 
@@ -159,16 +254,39 @@ class Weclapp:
         :param limit: Limit total records returned.
         :param threaded: Fetch pages in parallel if True.
         :param max_workers: Maximum parallel threads (default is 10).
-        :return: List of records.
+        :param additional_properties: Optional list or comma-separated string of property names to include in additionalProperties.
+        :param referenced_entities: Optional list or comma-separated string of property paths (e.g., 'customerId,orderItems.articleId') to include as referenced entities.
+                                  This is passed as the 'includeReferencedEntities' parameter to the API.
+        :param return_weclapp_response: If True, returns a WeclappResponse object instead of just the result.
+        :return: List of records, or a WeclappResponse object if return_weclapp_response is True.
         :raises WeclappAPIError: on request failure.
         """
         params = params.copy() if params is not None else {}
         results: List[Any] = []
+        all_response_data = {}
+
+        # Add additionalProperties parameter if provided
+        if additional_properties:
+            if isinstance(additional_properties, list):
+                params['additionalProperties'] = ','.join(additional_properties)
+            else:
+                params['additionalProperties'] = additional_properties
+
+        # Add includeReferencedEntities parameter if provided
+        if referenced_entities:
+            if isinstance(referenced_entities, list):
+                params['includeReferencedEntities'] = ','.join(referenced_entities)
+            else:
+                params['includeReferencedEntities'] = referenced_entities
 
         if not threaded:
             # Sequential pagination.
             params['page'] = 1
             params['pageSize'] = limit if (limit is not None and limit < DEFAULT_PAGE_SIZE) else DEFAULT_PAGE_SIZE
+
+            # Initialize response data containers
+            all_additional_properties = {}
+            all_referenced_entities = {}
 
             while True:
                 url = urljoin(self.base_url, entity)
@@ -178,18 +296,48 @@ class Weclapp:
                 current_page = data.get('result', [])
                 results.extend(current_page)
 
+                # Collect additional properties and referenced entities if present
+                if 'additionalProperties' in data and data['additionalProperties']:
+                    all_additional_properties.update(data['additionalProperties'])
+
+                if 'referencedEntities' in data and data['referencedEntities']:
+                    all_referenced_entities.update(data['referencedEntities'])
+
                 if len(current_page) < params['pageSize'] or (limit is not None and len(results) >= limit):
                     break
                 params['page'] += 1
 
-            return results[:limit] if limit is not None else results
+            # Apply limit if specified
+            if limit is not None:
+                results = results[:limit]
+
+            # Prepare the complete response data
+            all_response_data = {
+                'result': results
+            }
+
+            if all_additional_properties:
+                all_response_data['additionalProperties'] = all_additional_properties
+
+            if all_referenced_entities:
+                all_response_data['referencedEntities'] = all_referenced_entities
+
+            # Return WeclappResponse object if requested, otherwise just the results
+            if return_weclapp_response:
+                return WeclappResponse.from_api_response(all_response_data)
+            else:
+                return results
 
         else:
             # Parallel pagination.
             count_endpoint = f"{entity}/count"
             logger.info(f"Fetching total count for {entity} with params {params}")
-            total_count_data = self.get(count_endpoint, params=params)
-            total_count = total_count_data if isinstance(total_count_data, int) else 0
+            # Special handling for count endpoint which returns an integer directly
+            url = urljoin(self.base_url, count_endpoint)
+            logger.debug(f"GET {url} with params {params}")
+            response = self.session.request("GET", url, params=params)
+            self._check_response(response)
+            total_count = response.json() if response.status_code == 200 else 0
 
             if total_count == 0:
                 logger.info(f"No records found for entity '{entity}'")
@@ -204,8 +352,12 @@ class Weclapp:
                 f"records across {total_pages} pages in parallel."
             )
 
-            def fetch_page(page_number: int) -> List[Any]:
-                # Fetch a single page.
+            # Initialize response data containers for threaded mode
+            all_additional_properties = {}
+            all_referenced_entities = {}
+
+            def fetch_page(page_number: int) -> Dict[str, Any]:
+                # Fetch a single page and return the full response data.
                 page_params = params.copy()
                 page_params['page'] = page_number
                 page_params['pageSize'] = page_size
@@ -213,21 +365,49 @@ class Weclapp:
                 logger.info(f"[Threaded] Fetching page {page_number} of {total_pages} for {entity}")
                 logger.debug(f"GET {url} with params {page_params}")
                 data = self._send_request("GET", url, params=page_params)
-                return data.get('result', [])
+                return data
 
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 future_to_page = {executor.submit(fetch_page, page): page for page in range(1, total_pages + 1)}
                 for future in as_completed(future_to_page):
                     page_number = future_to_page[future]
                     try:
-                        page_results = future.result()
+                        page_data = future.result()
+                        page_results = page_data.get('result', [])
                         results.extend(page_results)
+
+                        # Collect additional properties and referenced entities if present
+                        if 'additionalProperties' in page_data and page_data['additionalProperties']:
+                            all_additional_properties.update(page_data['additionalProperties'])
+
+                        if 'referencedEntities' in page_data and page_data['referencedEntities']:
+                            all_referenced_entities.update(page_data['referencedEntities'])
+
                     except Exception as e:
                         logger.error(f"Error fetching page {page_number} for {entity}: {e}")
                     else:
                         logger.info(f"[Threaded] Completed page {page_number}/{total_pages} for {entity}")
 
-            return results[:limit] if limit is not None else results
+            # Apply limit if specified
+            if limit is not None:
+                results = results[:limit]
+
+            # Prepare the complete response data
+            all_response_data = {
+                'result': results
+            }
+
+            if all_additional_properties:
+                all_response_data['additionalProperties'] = all_additional_properties
+
+            if all_referenced_entities:
+                all_response_data['referencedEntities'] = all_referenced_entities
+
+            # Return WeclappResponse object if requested, otherwise just the results
+            if return_weclapp_response:
+                return WeclappResponse.from_api_response(all_response_data)
+            else:
+                return results
 
     def post(self, endpoint: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -281,7 +461,7 @@ class Weclapp:
         url = urljoin(self.base_url, new_endpoint)
         logger.debug(f"DELETE {url} with params {params}")
         return self._send_request("DELETE", url, params=params)
-    
+
     def call_method(
         self,
         entity: str,
