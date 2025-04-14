@@ -1,2 +1,6 @@
 python-dotenv
 pytest
+setuptools
+wheel
+build
+twine
