@@ -317,9 +317,15 @@ class Weclapp:
 
                 # Collect additional properties and referenced entities if present
                 if 'additionalProperties' in data and data['additionalProperties']:
-                    all_additional_properties.update(data['additionalProperties'])
+                    # For additionalProperties, we need to extend each property array
+                    # as there should be one entry per record
+                    for prop_name, prop_values in data['additionalProperties'].items():
+                        if prop_name not in all_additional_properties:
+                            all_additional_properties[prop_name] = []
+                        all_additional_properties[prop_name].extend(prop_values)
 
                 if 'referencedEntities' in data and data['referencedEntities']:
+                    # For referencedEntities, we can use update as they are likely redundant
                     all_referenced_entities.update(data['referencedEntities'])
 
                 if len(current_page) < params['pageSize'] or (limit is not None and len(results) >= limit):
@@ -397,9 +403,15 @@ class Weclapp:
 
                         # Collect additional properties and referenced entities if present
                         if 'additionalProperties' in page_data and page_data['additionalProperties']:
-                            all_additional_properties.update(page_data['additionalProperties'])
+                            # For additionalProperties, we need to extend each property array
+                            # as there should be one entry per record
+                            for prop_name, prop_values in page_data['additionalProperties'].items():
+                                if prop_name not in all_additional_properties:
+                                    all_additional_properties[prop_name] = []
+                                all_additional_properties[prop_name].extend(prop_values)
 
                         if 'referencedEntities' in page_data and page_data['referencedEntities']:
+                            # For referencedEntities, we can use update as they are likely redundant
                             all_referenced_entities.update(page_data['referencedEntities'])
 
                     except Exception as e:
