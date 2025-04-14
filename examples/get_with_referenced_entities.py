@@ -5,7 +5,7 @@ import os
 import requests
 
 # Simple example: Fetch articles with referenced entities
-# This demonstrates how to use the include_referenced_entities parameter
+# This demonstrates how to use the includeReferencedEntities parameter
 
 # Load environment variables from .env file
 load_dotenv()
@@ -58,8 +58,8 @@ try:
     else:
         logging.info("Direct _send_request response does NOT include referencedEntities")
 
-    # Now try with the include_referenced_entities parameter
-    logging.info("\nNow trying with the include_referenced_entities parameter:")
+    # Now try with the includeReferencedEntities parameter
+    logging.info("\nNow trying with the includeReferencedEntities parameter:")
 
     # Let's try a simpler approach
     # Create a params dictionary with the correct parameter name

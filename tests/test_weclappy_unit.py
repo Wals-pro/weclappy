@@ -96,7 +96,7 @@ class TestWeclappUnit(unittest.TestCase):
         # Call the method with additionalProperties
         result = self.weclapp.get(
             "article",
-            additional_properties=["currentSalesPrice"],
+            params={"additionalProperties": "currentSalesPrice"},
             return_weclapp_response=True
         )
 
@@ -129,10 +129,10 @@ class TestWeclappUnit(unittest.TestCase):
         }
         mock_request.return_value = mock_response
 
-        # Call the method with additionalProperties as a list
+        # Call the method with additionalProperties as a comma-separated string
         result = self.weclapp.get(
             "article",
-            additional_properties=["currentSalesPrice", "averagePrice"],
+            params={"additionalProperties": "currentSalesPrice,averagePrice"},
             return_weclapp_response=True
         )
 
@@ -171,7 +171,7 @@ class TestWeclappUnit(unittest.TestCase):
         # Call the method with includeReferencedEntities
         result = self.weclapp.get(
             "article",
-            include_referenced_entities=["unitId"],
+            params={"includeReferencedEntities": "unitId"},
             return_weclapp_response=True
         )
 
@@ -206,10 +206,10 @@ class TestWeclappUnit(unittest.TestCase):
         }
         mock_request.return_value = mock_response
 
-        # Call the method with includeReferencedEntities as a list
+        # Call the method with includeReferencedEntities as a comma-separated string
         result = self.weclapp.get(
             "article",
-            include_referenced_entities=["unitId", "articleCategoryId"],
+            params={"includeReferencedEntities": "unitId,articleCategoryId"},
             return_weclapp_response=True
         )
 
@@ -248,8 +248,10 @@ class TestWeclappUnit(unittest.TestCase):
         # Call the method with both parameters
         result = self.weclapp.get(
             "article",
-            additional_properties=["currentSalesPrice"],
-            include_referenced_entities=["unitId"],
+            params={
+                "additionalProperties": "currentSalesPrice",
+                "includeReferencedEntities": "unitId"
+            },
             return_weclapp_response=True
         )
 
@@ -322,7 +324,7 @@ class TestWeclappUnit(unittest.TestCase):
         # Call the method
         result = self.weclapp.get_all(
             "article",
-            additional_properties=["currentSalesPrice"],
+            params={"additionalProperties": "currentSalesPrice"},
             threaded=False,  # Use sequential to simplify test
             return_weclapp_response=True
         )
@@ -352,7 +354,7 @@ class TestWeclappUnit(unittest.TestCase):
         # Call the method
         result = self.weclapp.get_all(
             "article",
-            include_referenced_entities=["unitId"],
+            params={"includeReferencedEntities": "unitId"},
             threaded=False,  # Use sequential to simplify test
             return_weclapp_response=True
         )

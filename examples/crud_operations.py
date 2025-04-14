@@ -20,6 +20,7 @@ try:
     logging.info("Creating a new contact...")
     
     new_contact = weclapp.post("contact", {
+        "partyType": "PERSON",
         "firstName": "John",
         "lastName": "Doe",
         "email": "john.doe@example.com"

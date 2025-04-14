@@ -77,17 +77,23 @@ from weclappy import WeclappResponse
 sales_order_response = client.get_all(
     "salesOrder",
     limit=10,
-    additional_properties=["customer", "positions"],  # List of property names
-    include_referenced_entities=["customerId", "positions.articleId"],  # List of property paths
+    params={
+        "additionalProperties": "customer,positions",  # Comma-separated property names
+        "includeReferencedEntities": "customerId,positions.articleId"  # Comma-separated property paths
+    },
     return_weclapp_response=True
 )
 
-# Alternatively, you can use comma-separated strings for both parameters:
+# You can also use arrays and join them if you're building the parameters dynamically:
+# properties = ["customer", "positions"]
+# referenced_entities = ["customerId", "positions.articleId"]
 # sales_order_response = client.get_all(
 #     "salesOrder",
 #     limit=10,
-#     additional_properties="customer,positions",  # Comma-separated string of property names
-#     include_referenced_entities="customerId,positions.articleId",  # Comma-separated string of property paths
+#     params={
+#         "additionalProperties": ",".join(properties),
+#         "includeReferencedEntities": ",".join(referenced_entities)
+#     },
 #     return_weclapp_response=True
 # )
 
@@ -122,13 +128,15 @@ By default, `max_workers` is set to 10, but you can adjust this based on your ne
 
 ## Structured Response
 
-When using `additionalProperties` or `include_referenced_entities`, you can get a structured response by setting `return_weclapp_response=True`:
+When using `additionalProperties` or `includeReferencedEntities`, you can get a structured response by setting `return_weclapp_response=True`:
 
 ```python
 response = client.get_all(
     "salesOrder",
-    additional_properties=["customer"],
-    include_referenced_entities=["customerId"],
+    params={
+        "additionalProperties": "customer",
+        "includeReferencedEntities": "customerId"
+    },
     return_weclapp_response=True
 )
 

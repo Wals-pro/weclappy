@@ -193,8 +193,6 @@ class Weclapp:
         endpoint: str,
         id: Optional[str] = None,
         params: Optional[Dict[str, Any]] = None,
-        additional_properties: Optional[Union[List[str], str]] = None,
-        include_referenced_entities: Optional[Union[List[str], str]] = None,
         return_weclapp_response: bool = False
     ) -> Union[List[Any], Dict[str, Any], WeclappResponse]:
         """
@@ -203,12 +201,7 @@ class Weclapp:
 
         :param endpoint: API endpoint.
         :param id: Optional identifier to fetch a single record.
-        :param params: Query parameters.
-        :param additional_properties: Optional list or comma-separated string of property names to include in additionalProperties.
-                                   Note: This parameter is only used when fetching lists (id=None), not when fetching by ID.
-        :param include_referenced_entities: Optional list or comma-separated string of property paths (e.g., 'customerId,orderItems.articleId') to include as referenced entities.
-                                  This is passed as the 'includeReferencedEntities' parameter to the API.
-                                  Note: This parameter is only used when fetching lists (id=None), not when fetching by ID.
+        :param params: Query parameters. Use this to add 'additionalProperties' and 'includeReferencedEntities' parameters directly.
         :param return_weclapp_response: If True, returns a WeclappResponse object instead of just the result.
         :return: A single record as a dict if id is provided, or a list of records otherwise.
                  If return_weclapp_response is True, returns a WeclappResponse object.
@@ -216,23 +209,7 @@ class Weclapp:
         """
         params = params.copy() if params is not None else {}
 
-        # Add additionalProperties parameter if provided (only for list endpoints, not for ID lookups)
-        if additional_properties and id is None:
-            if isinstance(additional_properties, list):
-                params['additionalProperties'] = ','.join(additional_properties)
-            else:
-                params['additionalProperties'] = additional_properties
-        elif additional_properties and id is not None:
-            logger.warning("additionalProperties parameter is ignored when fetching by ID")
-
-        # Add includeReferencedEntities parameter if provided (only for list endpoints, not for ID lookups)
-        if include_referenced_entities and id is None:
-            if isinstance(include_referenced_entities, list):
-                params['includeReferencedEntities'] = ','.join(include_referenced_entities)
-            else:
-                params['includeReferencedEntities'] = include_referenced_entities
-        elif include_referenced_entities and id is not None:
-            logger.warning("includeReferencedEntities parameter is ignored when fetching by ID")
+        # Note: Users should add additionalProperties and includeReferencedEntities directly to params
 
         if id is not None:
             new_endpoint = f"{endpoint}/id/{id}"
@@ -261,21 +238,16 @@ class Weclapp:
         limit: Optional[int] = None,
         threaded: bool = False,
         max_workers: int = DEFAULT_MAX_WORKERS,
-        additional_properties: Optional[Union[List[str], str]] = None,
-        include_referenced_entities: Optional[Union[List[str], str]] = None,
         return_weclapp_response: bool = False
     ) -> Union[List[Any], WeclappResponse]:
         """
         Retrieve all records for the given entity with automatic pagination.
 
         :param entity: Entity name, e.g. 'salesOrder'.
-        :param params: Query parameters.
+        :param params: Query parameters. Use this to add 'additionalProperties' and 'includeReferencedEntities' parameters directly.
         :param limit: Limit total records returned.
         :param threaded: Fetch pages in parallel if True.
         :param max_workers: Maximum parallel threads (default is 10).
-        :param additional_properties: Optional list or comma-separated string of property names to include in additionalProperties.
-        :param include_referenced_entities: Optional list or comma-separated string of property paths (e.g., 'customerId,orderItems.articleId') to include as referenced entities.
-                                  This is passed as the 'includeReferencedEntities' parameter to the API.
         :param return_weclapp_response: If True, returns a WeclappResponse object instead of just the result.
         :return: List of records, or a WeclappResponse object if return_weclapp_response is True.
         :raises WeclappAPIError: on request failure.
@@ -284,19 +256,7 @@ class Weclapp:
         results: List[Any] = []
         all_response_data = {}
 
-        # Add additionalProperties parameter if provided
-        if additional_properties:
-            if isinstance(additional_properties, list):
-                params['additionalProperties'] = ','.join(additional_properties)
-            else:
-                params['additionalProperties'] = additional_properties
-
-        # Add includeReferencedEntities parameter if provided
-        if include_referenced_entities:
-            if isinstance(include_referenced_entities, list):
-                params['includeReferencedEntities'] = ','.join(include_referenced_entities)
-            else:
-                params['includeReferencedEntities'] = include_referenced_entities
+        # Note: Users should add additionalProperties and includeReferencedEntities directly to params
 
         if not threaded:
             # Sequential pagination.
