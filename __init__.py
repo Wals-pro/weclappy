@@ -1,3 +1,3 @@
-from .weclappy import Weclapp, WeclappAPIError
+from .weclappy import Weclapp, WeclappAPIError, WeclappResponse
 
-__all__ = ["Weclapp", "WeclappAPIError"]
+__all__ = ["Weclapp", "WeclappAPIError", "WeclappResponse"]

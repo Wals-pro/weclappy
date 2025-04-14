@@ -17,6 +17,8 @@ The goal of this library is to provide a minimal, threaded client that handles p
 ## Features
 
 - **Threaded Pagination:** Fetch multiple pages concurrently for enhanced performance.
+- **Additional Properties & Referenced Entities:** Support for weclapp API's additionalProperties and referencedEntities parameters.
+- **Structured Response:** Optional WeclappResponse class to handle complex API responses.
 - **Minimal Dependencies:** Only dependency is [`requests`](https://pypi.org/project/requests/).
 - **Simplicity:** A lean bloat free solution to interact with the weclapp API.
 - **Open Source:** Free to use in any project, with contributions and improvements highly welcome.
@@ -67,49 +69,106 @@ if "content" in pdf_response:
 else:
     # Otherwise, it's likely an error
     print("Response:", pdf_response)
+
+# Using additionalProperties and referencedEntities
+from weclappy import WeclappResponse
+
+# Get all sales orders with customer details and referenced entities
+sales_order_response = client.get_all(
+    "salesOrder",
+    limit=10,
+    params={
+        "additionalProperties": "customer,positions",  # Comma-separated property names
+        "includeReferencedEntities": "customerId,positions.articleId"  # Comma-separated property paths
+    },
+    return_weclapp_response=True
+)
+
+# You can also use arrays and join them if you're building the parameters dynamically:
+# properties = ["customer", "positions"]
+# referenced_entities = ["customerId", "positions.articleId"]
+# sales_order_response = client.get_all(
+#     "salesOrder",
+#     limit=10,
+#     params={
+#         "additionalProperties": ",".join(properties),
+#         "includeReferencedEntities": ",".join(referenced_entities)
+#     },
+#     return_weclapp_response=True
+# )
+
+# Access the main result
+sales_order = sales_order_response.result
+print(f"Sales Order: {sales_order['orderNumber']}")
+
+# Access additional properties if available
+if sales_order_response.additional_properties:
+    customer_data = sales_order_response.additional_properties.get("customer")
+    if customer_data:
+        print(f"Customer: {customer_data[0].get('name')}")
+
+# Access referenced entities if available
+if sales_order_response.referenced_entities:
+    customer_id = sales_order["customerId"]
+    customer = sales_order_response.referenced_entities.get("customer", {}).get(customer_id)
+    if customer:
+        print(f"Customer: {customer.get('name')}")
 ```
 
-## Examples
+## Threaded Pagination
 
-You can find useful examples in the examples folder. Make sure to create a virtual environment and install the dependencies first and prepare your environment file that holds your weclapp url and api key.
+The `get_all` method supports threaded pagination, which can significantly improve performance when fetching large datasets:
 
+```python
+# Fetch all sales orders with threaded pagination
+sales_orders = client.get_all("salesOrder", threaded=True, max_workers=10)
 ```
-cd examples
-python3 -m venv venv
 
-# On a Unix-based system
-source venv/bin/activate
+By default, `max_workers` is set to 10, but you can adjust this based on your needs and API rate limits.
 
-# On a Windows system
-venv\Scripts\activate
+## Structured Response
 
-pip install -r requirements.txt
+When using `additionalProperties` or `includeReferencedEntities`, you can get a structured response by setting `return_weclapp_response=True`:
 
-# Copy the .env.example file to .env and fill in your weclapp url and api key
+```python
+response = client.get_all(
+    "salesOrder",
+    params={
+        "additionalProperties": "customer",
+        "includeReferencedEntities": "customerId"
+    },
+    return_weclapp_response=True
+)
 
-# Run the example of your choice, in this case, fetch all sales invoices from weclapp.
-python get_all_sales_invoices.py
+# Access the main result
+orders = response.result
+
+# Access additional properties
+customer_data = response.additional_properties.get("customer")
+
+# Access referenced entities
+customer_entities = response.referenced_entities.get("customer")
+```
+
+## Error Handling
+
+The library raises `WeclappAPIError` for API-related errors:
+
+```python
+from weclappy import Weclapp, WeclappAPIError
+
+client = Weclapp("https://acme.weclapp.com/webapp/api/v1", "your_api_key")
+
+try:
+    result = client.get("nonExistentEndpoint")
+except WeclappAPIError as e:
+    print(f"API Error: {e}")
 ```
 
 ## Contributing
 
-Contributions are very welcome. Any improvements, bug fixes, or new features are gladly accepted. Let’s build this client together to make working with the weclapp API as efficient as possible.
-
+Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-This project is licensed under the MIT License. Feel free to use it in your commercial projects with no restrictions.
-
-# Get in touch
-
-If you are interested in working with us or want us to implement your integrations, then book a call. You can always book a call with me at 
-https://wals.pro/termin.
-
-## Support
-
-Feel free to use this library in all your projects for free. If you have a lot of fun and build something great with it, consider buying me a coffee.
-
-## Follow me on:
-- [LinkedIn](https://www.linkedin.com/in/markuswals)
-- [YouTube](https://www.youtube.com/@wals-pro)
-
+This project is licensed under the MIT License - see the LICENSE file for details.
