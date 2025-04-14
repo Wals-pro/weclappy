@@ -78,7 +78,7 @@ sales_order_response = client.get_all(
     "salesOrder",
     limit=10,
     additional_properties=["customer", "positions"],  # List of property names
-    referenced_entities=["customerId", "positions.articleId"],  # List of property paths
+    include_referenced_entities=["customerId", "positions.articleId"],  # List of property paths
     return_weclapp_response=True
 )
 
@@ -87,7 +87,7 @@ sales_order_response = client.get_all(
 #     "salesOrder",
 #     limit=10,
 #     additional_properties="customer,positions",  # Comma-separated string of property names
-#     referenced_entities="customerId,positions.articleId",  # Comma-separated string of property paths
+#     include_referenced_entities="customerId,positions.articleId",  # Comma-separated string of property paths
 #     return_weclapp_response=True
 # )
 
@@ -99,99 +99,68 @@ print(f"Sales Order: {sales_order['orderNumber']}")
 if sales_order_response.additional_properties:
     customer_data = sales_order_response.additional_properties.get("customer")
     if customer_data:
-        print(f"Customer: {customer_data[0]['name']}")
+        print(f"Customer: {customer_data[0].get('name')}")
 
 # Access referenced entities if available
 if sales_order_response.referenced_entities:
-    for entity_type, entities in sales_order_response.referenced_entities.items():
-        print(f"{entity_type}: {len(entities)} entities")
+    customer_id = sales_order["customerId"]
+    customer = sales_order_response.referenced_entities.get("customer", {}).get(customer_id)
+    if customer:
+        print(f"Customer: {customer.get('name')}")
 ```
 
-## Examples
+## Threaded Pagination
 
-You can find useful examples in the examples folder. Make sure to create a virtual environment and install the dependencies first and prepare your environment file that holds your weclapp url and api key.
+The `get_all` method supports threaded pagination, which can significantly improve performance when fetching large datasets:
 
-```
-cd examples
-python3 -m venv venv
-
-# On a Unix-based system
-source venv/bin/activate
-
-# On a Windows system
-venv\Scripts\activate
-
-pip install -r requirements.txt
-
-# Copy the .env.example file to .env and fill in your weclapp url and api key
+```python
+# Fetch all sales orders with threaded pagination
+sales_orders = client.get_all("salesOrder", threaded=True, max_workers=10)
 ```
 
-### Available Examples
+By default, `max_workers` is set to 10, but you can adjust this based on your needs and API rate limits.
 
-1. **Basic Usage with Referenced Entities**
-   ```
-   python get_all_sales_invoices.py
-   ```
-   Demonstrates fetching sales invoices with referenced entities and downloading PDFs.
+## Structured Response
 
-2. **Using additionalProperties and referencedEntities with Articles**
-   ```
-   python get_with_additional_properties.py
-   ```
-   Shows how to fetch articles with both additional properties (like currentSalesPrice, aggregateStock, averagePrice) and referenced entities, using the WeclappResponse class to access the structured data.
+When using `additionalProperties` or `include_referenced_entities`, you can get a structured response by setting `return_weclapp_response=True`:
 
-3. **Complete Example with Articles**
-   ```
-   python get_articles_with_properties.py
-   ```
-   Comprehensive example showing how to use both additionalProperties and referencedEntities with the article endpoint, including detailed handling of stock quantities, prices, and related entities.
+```python
+response = client.get_all(
+    "salesOrder",
+    additional_properties=["customer"],
+    include_referenced_entities=["customerId"],
+    return_weclapp_response=True
+)
 
-4. **Threaded Fetching with 25 Threads**
-   ```
-   python get_all_sales_orders_threaded.py
-   ```
-   Demonstrates how to fetch all salesOrders using threaded fetching with 25 threads, comparing performance with sequential fetching and showing how to work with the results.
+# Access the main result
+orders = response.result
 
-## Testing
+# Access additional properties
+customer_data = response.additional_properties.get("customer")
 
-The library includes comprehensive tests to verify all functionality:
-
-```bash
-# Install test dependencies
-pip install pytest pytest-cov
-
-# Run unit tests
-python -m pytest tests/test_weclappy_unit.py -v
-
-# Run integration tests (requires API credentials)
-python -m pytest tests/test_weclappy_integration.py -v
+# Access referenced entities
+customer_entities = response.referenced_entities.get("customer")
 ```
 
-See the [tests/README.md](tests/README.md) file for more details on running tests.
+## Error Handling
 
-## Changelog
+The library raises `WeclappAPIError` for API-related errors:
 
-See the [CHANGELOG.md](changelog.md) file for details on all changes in each release.
+```python
+from weclappy import Weclapp, WeclappAPIError
+
+client = Weclapp("https://acme.weclapp.com/webapp/api/v1", "your_api_key")
+
+try:
+    result = client.get("nonExistentEndpoint")
+except WeclappAPIError as e:
+    print(f"API Error: {e}")
+```
 
 ## Contributing
 
-Contributions are very welcome. Any improvements, bug fixes, or new features are gladly accepted. Let’s build this client together to make working with the weclapp API as efficient as possible.
-
+Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-This project is licensed under the MIT License. Feel free to use it in your commercial projects with no restrictions.
-
-# Get in touch
-
-If you are interested in working with us or want us to implement your integrations, then book a call. You can always book a call with me at
-https://wals.pro/termin.
-
-## Support
-
-Feel free to use this library in all your projects for free. If you have a lot of fun and build something great with it, consider buying me a coffee.
-
-## Follow me on:
-- [LinkedIn](https://www.linkedin.com/in/markuswals)
-- [YouTube](https://www.youtube.com/@wals-pro)
-
+This project is licensed under the MIT License - see the LICENSE file for details.

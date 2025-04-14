@@ -171,7 +171,7 @@ class TestWeclappUnit(unittest.TestCase):
         # Call the method with includeReferencedEntities
         result = self.weclapp.get(
             "article",
-            referenced_entities=["unitId"],
+            include_referenced_entities=["unitId"],
             return_weclapp_response=True
         )
 
@@ -209,7 +209,7 @@ class TestWeclappUnit(unittest.TestCase):
         # Call the method with includeReferencedEntities as a list
         result = self.weclapp.get(
             "article",
-            referenced_entities=["unitId", "articleCategoryId"],
+            include_referenced_entities=["unitId", "articleCategoryId"],
             return_weclapp_response=True
         )
 
@@ -249,7 +249,7 @@ class TestWeclappUnit(unittest.TestCase):
         result = self.weclapp.get(
             "article",
             additional_properties=["currentSalesPrice"],
-            referenced_entities=["unitId"],
+            include_referenced_entities=["unitId"],
             return_weclapp_response=True
         )
 
@@ -352,7 +352,7 @@ class TestWeclappUnit(unittest.TestCase):
         # Call the method
         result = self.weclapp.get_all(
             "article",
-            referenced_entities=["unitId"],
+            include_referenced_entities=["unitId"],
             threaded=False,  # Use sequential to simplify test
             return_weclapp_response=True
         )
