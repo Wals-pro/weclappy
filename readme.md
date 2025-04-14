@@ -2,7 +2,13 @@
 
 The weclapp Python Client.
 
+## Motivation
+
 There is no lightweight, simple weclapp client library available for Python currently. Let's build it together.
+
+## Disclaimer
+
+This package is not affiliated with weclapp GmbH in any way. This is an independent project and subject to constant development and improvement. Until an official release of version 1.0.0, the API may change without notice, breaking your code. This is a mandatory step in the development of any software library to incrementally improve the library quickly and by that be able to fully support the weclapp API soon.
 
 ## Overview
 
