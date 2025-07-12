@@ -249,3 +249,24 @@ def test_get_sales_invoices_with_referenced_entities(client: Weclapp) -> None:
 
     assert isinstance(response, WeclappResponse)
     assert isinstance(response.result, list)
+
+def test_get_all_articles_threaded(client: Weclapp) -> None:
+    """
+    Test getting all articles using threaded fetching.
+    """
+    try:
+        # Get articles using threaded fetching
+        results = client.get_all(
+            "article",
+            limit=10,
+            threaded=True
+        )
+
+        logger.info(f"Retrieved {len(results)} articles with threaded fetching")
+
+        # Basic assertion
+        assert isinstance(results, list)
+        assert len(results) > 0, "No articles returned from threaded fetch"
+
+    except WeclappAPIError as e:
+        pytest.fail(f"Failed to get articles with threaded fetching: {e}")

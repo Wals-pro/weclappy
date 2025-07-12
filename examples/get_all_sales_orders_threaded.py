@@ -21,7 +21,7 @@ try:
 
     sales_orders = weclapp.get_all(
         "salesOrder",
-        limit=10,  # Fetch up to 10 records
+        limit=10000,  # Fetch up to 10 records
         threaded=True,  # Enable threaded fetching
         max_workers=10  # Use 10 threads for parallel fetching
     )

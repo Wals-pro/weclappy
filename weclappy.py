@@ -322,7 +322,7 @@ class Weclapp:
             logger.debug(f"GET {url} with params {params}")
             response = self.session.request("GET", url, params=params)
             self._check_response(response)
-            total_count = response.json() if response.status_code == 200 else 0
+            total_count = response.json().get('result', 0) if response.status_code == 200 else 0
 
             if total_count == 0:
                 logger.info(f"No records found for entity '{entity}'")
