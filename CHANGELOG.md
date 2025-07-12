@@ -13,22 +13,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.2.1] - 2024-07-14 (approximate)
 
+### Fixed
+- Issue in get_all threaded fetching
+
+## [0.2.0] - 2024-07-14
+
 ### Added
 - Support for weclapp API's `additionalProperties` parameter in `get_all` method
 - Support for weclapp API's `includeReferencedEntities` parameter in `get_all` method
 - New `WeclappResponse` class to handle structured API responses
-- New example scripts demonstrating the new features (get_with_additional_properties.py, get_with_referenced_entities.py, get_with_both_parameters.py, get_all_sales_orders_threaded.py, count_entities.py, download_document.py, crud_operations.py)
+- New example scripts demonstrating the new features
 - Enhanced documentation in README.md
 - New integration and unit tests for additionalProperties and includeReferencedEntities
 
 ### Changed
-- Updated `get` and `get_all` methods with new optional parameters while maintaining backward compatibility
+- Updated `get` and `get_all` methods with new optional parameters
 - Improved error handling for API responses
-- Enhanced example scripts to demonstrate both basic and advanced usage
-- Project version updated to 0.2.1
+- Enhanced example scripts
+- Project version updated to 0.2.0
 
 ### Fixed
-- Corrected the parameter name for referenced entities from `referencedEntities` to `includeReferencedEntities` to match the weclapp API
+- Corrected parameter name for referenced entities
 - Fixed handling of additionalProperties and referencedEntities across multiple pages
 
 ## [0.1.4] - 2024-05-07 (approximate)
