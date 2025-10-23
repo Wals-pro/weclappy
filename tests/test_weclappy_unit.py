@@ -506,6 +506,219 @@ class TestWeclappUnit(unittest.TestCase):
         self.assertEqual(response.referenced_entities["unit"]["456"]["name"], "Piece")
         self.assertEqual(response.raw_response, api_response)
 
+    @patch('weclappy.DEFAULT_PAGE_SIZE', 2)
+    @patch('weclappy.Weclapp._send_request')
+    def test_get_all_merges_referenced_entities_sequential(self, mock_send_request):
+        """Test that get_all properly merges referencedEntities across multiple pages in sequential mode."""
+        # Mock responses for 3 pages with different referenced entities
+        mock_send_request.side_effect = [
+            # Page 1: 2 open items referencing 2 invoices
+            {
+                "result": [
+                    {"id": "1", "salesInvoiceId": "inv1"},
+                    {"id": "2", "salesInvoiceId": "inv2"}
+                ],
+                "referencedEntities": {
+                    "salesInvoice": [
+                        {"id": "inv1", "invoiceNumber": "INV-001"},
+                        {"id": "inv2", "invoiceNumber": "INV-002"}
+                    ]
+                }
+            },
+            # Page 2: 2 more open items referencing 2 different invoices
+            {
+                "result": [
+                    {"id": "3", "salesInvoiceId": "inv3"},
+                    {"id": "4", "salesInvoiceId": "inv4"}
+                ],
+                "referencedEntities": {
+                    "salesInvoice": [
+                        {"id": "inv3", "invoiceNumber": "INV-003"},
+                        {"id": "inv4", "invoiceNumber": "INV-004"}
+                    ]
+                }
+            },
+            # Page 3: 1 more open item referencing another invoice (last page, incomplete)
+            {
+                "result": [
+                    {"id": "5", "salesInvoiceId": "inv5"}
+                ],
+                "referencedEntities": {
+                    "salesInvoice": [
+                        {"id": "inv5", "invoiceNumber": "INV-005"}
+                    ]
+                }
+            }
+        ]
+
+        # Call get_all with sequential pagination
+        result = self.weclapp.get_all(
+            "accountOpenItem",
+            params={"includeReferencedEntities": "salesInvoiceId"},
+            threaded=False,
+            return_weclapp_response=True
+        )
+
+        # Verify all items were fetched
+        self.assertIsInstance(result, WeclappResponse)
+        self.assertEqual(len(result.result), 5)
+
+        # Verify ALL referenced entities from ALL pages are present
+        self.assertIsNotNone(result.referenced_entities)
+        self.assertIn("salesInvoice", result.referenced_entities)
+        
+        # Critical: All 5 invoices should be present, not just the last page
+        self.assertEqual(len(result.referenced_entities["salesInvoice"]), 5)
+        
+        # Verify specific invoices from each page
+        self.assertIn("inv1", result.referenced_entities["salesInvoice"])
+        self.assertIn("inv2", result.referenced_entities["salesInvoice"])
+        self.assertIn("inv3", result.referenced_entities["salesInvoice"])
+        self.assertIn("inv4", result.referenced_entities["salesInvoice"])
+        self.assertIn("inv5", result.referenced_entities["salesInvoice"])
+        
+        # Verify invoice data
+        self.assertEqual(result.referenced_entities["salesInvoice"]["inv1"]["invoiceNumber"], "INV-001")
+        self.assertEqual(result.referenced_entities["salesInvoice"]["inv5"]["invoiceNumber"], "INV-005")
+
+    @patch('weclappy.DEFAULT_PAGE_SIZE', 2)
+    @patch('weclappy.Weclapp._send_request')
+    @patch('weclappy.requests.Session.request')
+    def test_get_all_merges_referenced_entities_threaded(self, mock_session_request, mock_send_request):
+        """Test that get_all properly merges referencedEntities across multiple pages in threaded mode."""
+        # Mock the count endpoint
+        count_response = MagicMock()
+        count_response.status_code = 200
+        count_response.json.return_value = {"result": 5}
+        mock_session_request.return_value = count_response
+
+        # Mock responses for 3 pages with different referenced entities
+        # Note: In threaded mode, pages may be fetched in any order
+        mock_send_request.side_effect = [
+            # Page 1
+            {
+                "result": [
+                    {"id": "1", "salesInvoiceId": "inv1"},
+                    {"id": "2", "salesInvoiceId": "inv2"}
+                ],
+                "referencedEntities": {
+                    "salesInvoice": [
+                        {"id": "inv1", "invoiceNumber": "INV-001"},
+                        {"id": "inv2", "invoiceNumber": "INV-002"}
+                    ]
+                }
+            },
+            # Page 2
+            {
+                "result": [
+                    {"id": "3", "salesInvoiceId": "inv3"},
+                    {"id": "4", "salesInvoiceId": "inv4"}
+                ],
+                "referencedEntities": {
+                    "salesInvoice": [
+                        {"id": "inv3", "invoiceNumber": "INV-003"},
+                        {"id": "inv4", "invoiceNumber": "INV-004"}
+                    ]
+                }
+            },
+            # Page 3
+            {
+                "result": [
+                    {"id": "5", "salesInvoiceId": "inv5"}
+                ],
+                "referencedEntities": {
+                    "salesInvoice": [
+                        {"id": "inv5", "invoiceNumber": "INV-005"}
+                    ]
+                }
+            }
+        ]
+
+        # Call get_all with threaded pagination
+        result = self.weclapp.get_all(
+            "accountOpenItem",
+            params={"includeReferencedEntities": "salesInvoiceId"},
+            threaded=True,
+            return_weclapp_response=True
+        )
+
+        # Verify all items were fetched
+        self.assertIsInstance(result, WeclappResponse)
+        self.assertEqual(len(result.result), 5)
+
+        # Verify ALL referenced entities from ALL pages are present
+        self.assertIsNotNone(result.referenced_entities)
+        self.assertIn("salesInvoice", result.referenced_entities)
+        
+        # Critical: All 5 invoices should be present, not just the last page
+        self.assertEqual(len(result.referenced_entities["salesInvoice"]), 5)
+        
+        # Verify specific invoices from each page
+        self.assertIn("inv1", result.referenced_entities["salesInvoice"])
+        self.assertIn("inv2", result.referenced_entities["salesInvoice"])
+        self.assertIn("inv3", result.referenced_entities["salesInvoice"])
+        self.assertIn("inv4", result.referenced_entities["salesInvoice"])
+        self.assertIn("inv5", result.referenced_entities["salesInvoice"])
+        
+        # Verify invoice data
+        self.assertEqual(result.referenced_entities["salesInvoice"]["inv1"]["invoiceNumber"], "INV-001")
+        self.assertEqual(result.referenced_entities["salesInvoice"]["inv5"]["invoiceNumber"], "INV-005")
+
+    @patch('weclappy.DEFAULT_PAGE_SIZE', 2)
+    @patch('weclappy.Weclapp._send_request')
+    def test_get_all_merges_multiple_entity_types(self, mock_send_request):
+        """Test that get_all properly merges multiple types of referencedEntities across pages."""
+        # Mock responses with multiple entity types
+        mock_send_request.side_effect = [
+            # Page 1: Full page with 2 results
+            {
+                "result": [
+                    {"id": "1", "salesInvoiceId": "inv1", "customerId": "cust1"},
+                    {"id": "2", "salesInvoiceId": "inv2", "customerId": "cust2"}
+                ],
+                "referencedEntities": {
+                    "salesInvoice": [
+                        {"id": "inv1", "invoiceNumber": "INV-001"},
+                        {"id": "inv2", "invoiceNumber": "INV-002"}
+                    ],
+                    "customer": [
+                        {"id": "cust1", "name": "Customer 1"},
+                        {"id": "cust2", "name": "Customer 2"}
+                    ]
+                }
+            },
+            # Page 2: Incomplete page with 1 result (signals end of pagination)
+            {
+                "result": [
+                    {"id": "3", "salesInvoiceId": "inv3", "customerId": "cust3"}
+                ],
+                "referencedEntities": {
+                    "salesInvoice": [{"id": "inv3", "invoiceNumber": "INV-003"}],
+                    "customer": [{"id": "cust3", "name": "Customer 3"}]
+                }
+            }
+        ]
+
+        # Call get_all
+        result = self.weclapp.get_all(
+            "accountOpenItem",
+            params={"includeReferencedEntities": "salesInvoiceId,customerId"},
+            threaded=False,
+            return_weclapp_response=True
+        )
+
+        # Verify both entity types are properly merged
+        self.assertEqual(len(result.referenced_entities["salesInvoice"]), 3)
+        self.assertEqual(len(result.referenced_entities["customer"]), 3)
+        
+        # Verify entities from both pages
+        self.assertIn("inv1", result.referenced_entities["salesInvoice"])
+        self.assertIn("inv2", result.referenced_entities["salesInvoice"])
+        self.assertIn("inv3", result.referenced_entities["salesInvoice"])
+        self.assertIn("cust1", result.referenced_entities["customer"])
+        self.assertIn("cust2", result.referenced_entities["customer"])
+        self.assertIn("cust3", result.referenced_entities["customer"])
+
 
 if __name__ == "__main__":
     unittest.main()

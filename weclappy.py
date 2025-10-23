@@ -285,8 +285,11 @@ class Weclapp:
                         all_additional_properties[prop_name].extend(prop_values)
 
                 if 'referencedEntities' in data and data['referencedEntities']:
-                    # For referencedEntities, we can use update as they are likely redundant
-                    all_referenced_entities.update(data['referencedEntities'])
+                    # For referencedEntities, we need to merge lists within each entity type
+                    for entity_type, entities_list in data['referencedEntities'].items():
+                        if entity_type not in all_referenced_entities:
+                            all_referenced_entities[entity_type] = []
+                        all_referenced_entities[entity_type].extend(entities_list)
 
                 if len(current_page) < params['pageSize'] or (limit is not None and len(results) >= limit):
                     break
@@ -371,8 +374,11 @@ class Weclapp:
                                 all_additional_properties[prop_name].extend(prop_values)
 
                         if 'referencedEntities' in page_data and page_data['referencedEntities']:
-                            # For referencedEntities, we can use update as they are likely redundant
-                            all_referenced_entities.update(page_data['referencedEntities'])
+                            # For referencedEntities, we need to merge lists within each entity type
+                            for entity_type, entities_list in page_data['referencedEntities'].items():
+                                if entity_type not in all_referenced_entities:
+                                    all_referenced_entities[entity_type] = []
+                                all_referenced_entities[entity_type].extend(entities_list)
 
                     except Exception as e:
                         logger.error(f"Error fetching page {page_number} for {entity}: {e}")
