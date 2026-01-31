@@ -270,3 +270,105 @@ def test_get_all_articles_threaded(client: Weclapp) -> None:
 
     except WeclappAPIError as e:
         pytest.fail(f"Failed to get articles with threaded fetching: {e}")
+
+
+def test_error_not_found_structured_fields(client: Weclapp) -> None:
+    """
+    Test that WeclappAPIError provides structured fields for 404 errors.
+    """
+    # Try to get a non-existent entity
+    fake_id = "nonexistent-id-12345678"
+    
+    with pytest.raises(WeclappAPIError) as exc_info:
+        client.get("article", id=fake_id)
+    
+    error = exc_info.value
+    
+    # Verify structured error fields
+    assert error.status_code == 404
+    assert error.is_not_found is True
+    assert error.is_optimistic_lock is False
+    assert error.is_rate_limited is False
+    assert error.response_text is not None
+    assert error.url is not None
+    
+    logger.info(f"404 Error details: status={error.status_code}, error={error.error}, detail={error.detail}")
+    logger.info(f"Response text: {error.response_text}")
+
+
+def test_error_validation_structured_fields(client: Weclapp) -> None:
+    """
+    Test that WeclappAPIError provides structured fields for validation errors.
+    """
+    # Try to create an invalid entity (missing required fields)
+    invalid_data = {
+        "articleNumber": ""  # Empty article number should fail validation
+    }
+    
+    try:
+        client.post("article", invalid_data)
+        # If no error, the API accepted it - skip the test
+        pytest.skip("API did not return a validation error for invalid data")
+    except WeclappAPIError as error:
+        # Verify structured error fields
+        assert error.status_code is not None
+        assert error.response_text is not None
+        
+        logger.info(f"Validation Error details: status={error.status_code}")
+        logger.info(f"Error: {error.error}")
+        logger.info(f"Detail: {error.detail}")
+        logger.info(f"Validation errors: {error.validation_errors}")
+        logger.info(f"Messages: {error.messages}")
+        logger.info(f"Is validation error: {error.is_validation_error}")
+        
+        # Get all messages
+        all_msgs = error.get_all_messages()
+        logger.info(f"All messages: {all_msgs}")
+        
+        # Basic assertions
+        assert error.is_not_found is False
+
+
+def test_error_helper_methods(client: Weclapp) -> None:
+    """
+    Test WeclappAPIError helper methods with real API responses.
+    """
+    # Trigger a 404 error to test helper methods
+    fake_id = "nonexistent-id-99999999"
+    
+    with pytest.raises(WeclappAPIError) as exc_info:
+        client.get("salesOrder", id=fake_id)
+    
+    error = exc_info.value
+    
+    # Test get_validation_messages (should be empty for 404)
+    validation_msgs = error.get_validation_messages()
+    assert isinstance(validation_msgs, list)
+    
+    # Test get_all_messages
+    all_msgs = error.get_all_messages()
+    assert isinstance(all_msgs, list)
+    
+    logger.info(f"Validation messages: {validation_msgs}")
+    logger.info(f"All messages: {all_msgs}")
+
+
+def test_successful_request_no_error(client: Weclapp) -> None:
+    """
+    Test that successful requests don't raise errors and return expected data.
+    """
+    try:
+        # Simple GET request that should succeed
+        results = client.get("article", params={"page": 1, "pageSize": 1})
+        
+        assert isinstance(results, list)
+        logger.info(f"Successfully retrieved {len(results)} articles")
+        
+    except WeclappAPIError as e:
+        # Log the full error details for debugging
+        logger.error(f"Unexpected error: {e}")
+        logger.error(f"Status code: {e.status_code}")
+        logger.error(f"Error field: {e.error}")
+        logger.error(f"Detail field: {e.detail}")
+        logger.error(f"Response text: {e.response_text}")
+        pytest.fail(f"Request failed unexpectedly: {e}")

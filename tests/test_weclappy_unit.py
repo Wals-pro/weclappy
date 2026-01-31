@@ -1,6 +1,7 @@
 import unittest
 from unittest.mock import patch, MagicMock
-from weclappy import Weclapp, WeclappResponse
+import requests
+from weclappy import Weclapp, WeclappResponse, WeclappAPIError
 
 
 class TestWeclappUnit(unittest.TestCase):
@@ -718,6 +719,250 @@ class TestWeclappUnit(unittest.TestCase):
         self.assertIn("cust1", result.referenced_entities["customer"])
         self.assertIn("cust2", result.referenced_entities["customer"])
         self.assertIn("cust3", result.referenced_entities["customer"])
+
+
+    @patch('weclappy.requests.Session.request')
+    def test_api_error_includes_response_text(self, mock_request):
+        """Test that WeclappAPIError includes raw response text on HTTP errors."""
+        # Mock a 400 error response with JSON body
+        mock_response = MagicMock()
+        mock_response.status_code = 400
+        mock_response.text = '{"error": "Invalid request", "details": "Missing required field: name"}'
+        mock_response.json.return_value = {"error": "Invalid request", "details": "Missing required field: name"}
+        mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError("400 Client Error")
+        mock_request.return_value = mock_response
+
+        # Call the method and expect an exception
+        with self.assertRaises(WeclappAPIError) as context:
+            self.weclapp.get("article")
+
+        # Verify the exception contains the raw response text
+        exception = context.exception
+        self.assertIn("Invalid request", str(exception))
+        self.assertIn("Response body:", str(exception))
+        self.assertEqual(exception.response_text, mock_response.text)
+        self.assertEqual(exception.status_code, 400)
+        self.assertIsNotNone(exception.response)
+
+    @patch('weclappy.requests.Session.request')
+    def test_api_error_includes_response_text_non_json(self, mock_request):
+        """Test that WeclappAPIError includes raw response text even for non-JSON error responses."""
+        # Mock a 500 error response with non-JSON body
+        mock_response = MagicMock()
+        mock_response.status_code = 500
+        mock_response.text = '<html><body>Internal Server Error</body></html>'
+        mock_response.json.side_effect = ValueError("No JSON")
+        mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError("500 Server Error")
+        mock_request.return_value = mock_response
+
+        # Call the method and expect an exception
+        with self.assertRaises(WeclappAPIError) as context:
+            self.weclapp.post("article", {"name": "Test"})
+
+        # Verify the exception contains the raw response text
+        exception = context.exception
+        self.assertIn("Internal Server Error", str(exception))
+        self.assertIn("Response body:", str(exception))
+        self.assertEqual(exception.response_text, mock_response.text)
+        self.assertEqual(exception.status_code, 500)
+
+    @patch('weclappy.requests.Session.request')
+    def test_api_error_includes_response_text_on_put(self, mock_request):
+        """Test that WeclappAPIError includes raw response text on PUT errors."""
+        # Mock a 404 error response
+        mock_response = MagicMock()
+        mock_response.status_code = 404
+        mock_response.text = '{"error": "Entity not found", "entityId": "nonexistent123"}'
+        mock_response.json.return_value = {"error": "Entity not found", "entityId": "nonexistent123"}
+        mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError("404 Not Found")
+        mock_request.return_value = mock_response
+
+        # Call the method and expect an exception
+        with self.assertRaises(WeclappAPIError) as context:
+            self.weclapp.put("article", id="nonexistent123", data={"name": "Updated"})
+
+        # Verify the exception contains the raw response text
+        exception = context.exception
+        self.assertIn("Entity not found", str(exception))
+        self.assertEqual(exception.response_text, mock_response.text)
+        self.assertEqual(exception.status_code, 404)
+
+    def test_weclapp_api_error_attributes(self):
+        """Test WeclappAPIError exception attributes."""
+        # Create a mock response
+        mock_response = MagicMock()
+        mock_response.text = '{"error": "Test error"}'
+        mock_response.status_code = 422
+        mock_response.url = "https://test.weclapp.com/webapp/api/v1/article"
+
+        # Create exception with response
+        exc = WeclappAPIError("Test message", response=mock_response)
+        self.assertEqual(str(exc), "Test message")
+        self.assertEqual(exc.response, mock_response)
+        self.assertEqual(exc.response_text, '{"error": "Test error"}')
+        self.assertEqual(exc.status_code, 422)
+        self.assertEqual(exc.error, "Test error")
+
+        # Create exception without response
+        exc_no_response = WeclappAPIError("Test message without response")
+        self.assertIsNone(exc_no_response.response)
+        self.assertIsNone(exc_no_response.response_text)
+        self.assertIsNone(exc_no_response.status_code)
+
+        # Create exception with explicit response_text
+        exc_explicit = WeclappAPIError("Test", response=mock_response, response_text="Custom text")
+        self.assertEqual(exc_explicit.response_text, "Custom text")
+
+    def test_weclapp_api_error_structured_fields(self):
+        """Test WeclappAPIError parses structured error fields from JSON response."""
+        mock_response = MagicMock()
+        mock_response.status_code = 400
+        mock_response.url = "https://test.weclapp.com/webapp/api/v1/salesOrder"
+        mock_response.text = '''{
+            "error": "Validation failed",
+            "detail": "One or more fields have invalid values",
+            "title": "Bad Request",
+            "type": "VALIDATION_ERROR",
+            "validationErrors": [
+                {"field": "customerNumber", "message": "Customer number is required"},
+                {"field": "orderDate", "message": "Invalid date format"}
+            ],
+            "messages": [
+                {"severity": "ERROR", "message": "Please check all required fields"},
+                {"severity": "WARNING", "message": "Some optional data is missing"}
+            ]
+        }'''
+
+        exc = WeclappAPIError("Validation failed", response=mock_response)
+
+        # Check structured fields
+        self.assertEqual(exc.error, "Validation failed")
+        self.assertEqual(exc.detail, "One or more fields have invalid values")
+        self.assertEqual(exc.title, "Bad Request")
+        self.assertEqual(exc.error_type, "VALIDATION_ERROR")
+        self.assertEqual(len(exc.validation_errors), 2)
+        self.assertEqual(exc.validation_errors[0]["field"], "customerNumber")
+        self.assertEqual(len(exc.messages), 2)
+        self.assertEqual(exc.messages[0]["severity"], "ERROR")
+
+    def test_weclapp_api_error_is_optimistic_lock(self):
+        """Test WeclappAPIError detects optimistic lock errors."""
+        mock_response = MagicMock()
+        mock_response.status_code = 409
+        mock_response.url = "https://test.weclapp.com/webapp/api/v1/article/id/123"
+        mock_response.text = '{"detail": "Optimistic lock error", "error": "Version conflict"}'
+
+        exc = WeclappAPIError("Version conflict", response=mock_response)
+        self.assertTrue(exc.is_optimistic_lock)
+
+        # Test without optimistic lock
+        mock_response2 = MagicMock()
+        mock_response2.status_code = 400
+        mock_response2.url = "https://test.weclapp.com/webapp/api/v1/article"
+        mock_response2.text = '{"error": "Invalid data"}'
+
+        exc2 = WeclappAPIError("Invalid data", response=mock_response2)
+        self.assertFalse(exc2.is_optimistic_lock)
+
+    def test_weclapp_api_error_is_not_found(self):
+        """Test WeclappAPIError detects 404 errors."""
+        mock_response = MagicMock()
+        mock_response.status_code = 404
+        mock_response.url = "https://test.weclapp.com/webapp/api/v1/article/id/123"
+        mock_response.text = '{"error": "Entity not found"}'
+
+        exc = WeclappAPIError("Not found", response=mock_response)
+        self.assertTrue(exc.is_not_found)
+        self.assertFalse(exc.is_rate_limited)
+
+    def test_weclapp_api_error_is_rate_limited(self):
+        """Test WeclappAPIError detects rate limit errors."""
+        mock_response = MagicMock()
+        mock_response.status_code = 429
+        mock_response.url = "https://test.weclapp.com/webapp/api/v1/article"
+        mock_response.text = '{"error": "Too many requests"}'
+
+        exc = WeclappAPIError("Rate limited", response=mock_response)
+        self.assertTrue(exc.is_rate_limited)
+        self.assertFalse(exc.is_not_found)
+
+    def test_weclapp_api_error_is_validation_error(self):
+        """Test WeclappAPIError detects validation errors."""
+        mock_response = MagicMock()
+        mock_response.status_code = 400
+        mock_response.url = "https://test.weclapp.com/webapp/api/v1/salesOrder"
+        mock_response.text = '''{
+            "error": "Validation failed",
+            "validationErrors": [{"field": "name", "message": "Name is required"}]
+        }'''
+
+        exc = WeclappAPIError("Validation failed", response=mock_response)
+        self.assertTrue(exc.is_validation_error)
+
+        # Test without validation errors
+        mock_response2 = MagicMock()
+        mock_response2.status_code = 500
+        mock_response2.url = "https://test.weclapp.com/webapp/api/v1/article"
+        mock_response2.text = '{"error": "Internal server error"}'
+
+        exc2 = WeclappAPIError("Server error", response=mock_response2)
+        self.assertFalse(exc2.is_validation_error)
+
+    def test_weclapp_api_error_get_validation_messages(self):
+        """Test WeclappAPIError extracts validation messages."""
+        mock_response = MagicMock()
+        mock_response.status_code = 400
+        mock_response.url = "https://test.weclapp.com/webapp/api/v1/salesOrder"
+        mock_response.text = '''{
+            "validationErrors": [
+                {"field": "name", "message": "Name is required"},
+                {"field": "date", "message": "Invalid date"}
+            ]
+        }'''
+
+        exc = WeclappAPIError("Validation failed", response=mock_response)
+        messages = exc.get_validation_messages()
+
+        self.assertEqual(len(messages), 2)
+        self.assertEqual(messages[0], "Name is required")
+        self.assertEqual(messages[1], "Invalid date")
+
+    def test_weclapp_api_error_get_all_messages(self):
+        """Test WeclappAPIError collects all error messages."""
+        mock_response = MagicMock()
+        mock_response.status_code = 400
+        mock_response.url = "https://test.weclapp.com/webapp/api/v1/salesOrder"
+        mock_response.text = '''{
+            "error": "Request failed",
+            "detail": "Multiple issues found",
+            "validationErrors": [{"message": "Field A is invalid"}],
+            "messages": [{"severity": "ERROR", "message": "Check field B"}]
+        }'''
+
+        exc = WeclappAPIError("Failed", response=mock_response)
+        all_messages = exc.get_all_messages()
+
+        self.assertIn("Request failed", all_messages)
+        self.assertIn("Multiple issues found", all_messages)
+        self.assertIn("Field A is invalid", all_messages)
+        self.assertIn("[ERROR] Check field B", all_messages)
+
+    def test_weclapp_api_error_non_json_response(self):
+        """Test WeclappAPIError handles non-JSON responses gracefully."""
+        mock_response = MagicMock()
+        mock_response.status_code = 502
+        mock_response.url = "https://test.weclapp.com/webapp/api/v1/article"
+        mock_response.text = '<html><body>Bad Gateway</body></html>'
+
+        exc = WeclappAPIError("Bad Gateway", response=mock_response)
+
+        # Structured fields should be None/empty for non-JSON
+        self.assertIsNone(exc.error)
+        self.assertIsNone(exc.detail)
+        self.assertEqual(exc.validation_errors, [])
+        self.assertEqual(exc.messages, [])
+        self.assertFalse(exc.is_validation_error)
+        self.assertFalse(exc.is_optimistic_lock)
 
 
 if __name__ == "__main__":

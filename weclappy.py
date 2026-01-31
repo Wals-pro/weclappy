@@ -1,3 +1,4 @@
+import json
 import math
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -15,10 +16,150 @@ DEFAULT_PAGE_SIZE = 1000
 DEFAULT_MAX_WORKERS = 10
 
 class WeclappAPIError(Exception):
-    """Custom exception for Weclapp API errors."""
-    def __init__(self, message, response=None):
-        super().__init__(message)
+    """Custom exception for Weclapp API errors.
+
+    Provides structured access to error details from the Weclapp API response.
+
+    Attributes:
+        response: The raw requests.Response object (if available).
+        response_text: The raw response body text (if available).
+        status_code: The HTTP status code (if available).
+        error: The error message from the API response.
+        detail: Detailed error description from the API.
+        title: Error title from the API.
+        error_type: Error type identifier from the API.
+        validation_errors: List of validation error details.
+        messages: List of additional error messages with severity.
+        url: The request URL that caused the error.
+    """
+
+    # Identifier for optimistic lock errors in Weclapp
+    OPTIMISTIC_LOCK_IDENTIFIER = "Optimistic lock error"
+
+    def __init__(self, message, response=None, response_text=None):
         self.response = response
+        self.response_text = response_text if response_text is not None else (
+            response.text if response is not None else None
+        )
+        self.status_code = response.status_code if response is not None else None
+        self.url = str(response.url) if response is not None else None
+
+        # Initialize structured error fields
+        self.error = None
+        self.detail = None
+        self.title = None
+        self.error_type = None
+        self.validation_errors = []
+        self.messages = []
+
+        # Parse JSON error response if available
+        self._parse_error_response()
+
+        super().__init__(message)
+
+    def _parse_error_response(self):
+        """Parse the JSON error response and populate structured fields."""
+        if not self.response_text:
+            return
+
+        try:
+            error_data = json.loads(self.response_text)
+            if not isinstance(error_data, dict):
+                return
+
+            self.error = error_data.get('error')
+            self.detail = error_data.get('detail')
+            self.title = error_data.get('title')
+            self.error_type = error_data.get('type')
+            self.validation_errors = error_data.get('validationErrors', [])
+            self.messages = error_data.get('messages', [])
+
+        except (json.JSONDecodeError, ValueError):
+            # Not a JSON response, leave fields as None/empty
+            pass
+
+    @property
+    def is_optimistic_lock(self) -> bool:
+        """Check if this error is an optimistic lock (version conflict) error.
+
+        Returns:
+            True if this is an optimistic lock error, False otherwise.
+        """
+        if self.detail and self.OPTIMISTIC_LOCK_IDENTIFIER in str(self.detail):
+            return True
+        if self.error and self.OPTIMISTIC_LOCK_IDENTIFIER in str(self.error):
+            return True
+        return False
+
+    @property
+    def is_not_found(self) -> bool:
+        """Check if this error is a 404 Not Found error.
+
+        Returns:
+            True if this is a not found error, False otherwise.
+        """
+        return self.status_code == 404
+
+    @property
+    def is_validation_error(self) -> bool:
+        """Check if this error contains validation errors.
+
+        Returns:
+            True if validation errors are present, False otherwise.
+        """
+        return bool(self.validation_errors)
+
+    @property
+    def is_rate_limited(self) -> bool:
+        """Check if this error is a rate limit (429) error.
+
+        Returns:
+            True if this is a rate limit error, False otherwise.
+        """
+        return self.status_code == 429
+
+    def get_validation_messages(self) -> List[str]:
+        """Get a list of validation error messages.
+
+        Returns:
+            List of validation error message strings.
+        """
+        messages = []
+        for error in self.validation_errors:
+            if isinstance(error, dict):
+                msg = error.get('message') or error.get('error') or str(error)
+                messages.append(msg)
+            else:
+                messages.append(str(error))
+        return messages
+
+    def get_all_messages(self) -> List[str]:
+        """Get all error messages including validation errors and additional messages.
+
+        Returns:
+            List of all error message strings.
+        """
+        all_messages = []
+
+        if self.error:
+            all_messages.append(self.error)
+        if self.detail and self.detail != self.error:
+            all_messages.append(self.detail)
+
+        all_messages.extend(self.get_validation_messages())
+
+        for msg in self.messages:
+            if isinstance(msg, dict):
+                text = msg.get('message', str(msg))
+                severity = msg.get('severity', '')
+                if severity:
+                    all_messages.append(f"[{severity}] {text}")
+                else:
+                    all_messages.append(text)
+            else:
+                all_messages.append(str(msg))
+
+        return all_messages
 
 
 @dataclass
@@ -128,13 +269,17 @@ class Weclapp:
             response.raise_for_status()
         except requests.exceptions.HTTPError as e:
             error_message = str(e)
+            response_text = response.text
             try:
                 error_data = response.json()
                 if isinstance(error_data, dict) and 'error' in error_data:
                     error_message = f"{error_message} - {error_data['error']}"
             except (ValueError, KeyError):
                 pass
-            raise WeclappAPIError(error_message, response=response) from e
+            # Always include raw response text in the error message for debugging
+            if response_text:
+                error_message = f"{error_message}\nResponse body: {response_text}"
+            raise WeclappAPIError(error_message, response=response, response_text=response_text) from e
 
     def _send_request(self, method: str, url: str, **kwargs) -> Union[Dict[str, Any], bytes]:
         """
@@ -181,11 +326,19 @@ class Weclapp:
         except requests.exceptions.RequestException as e:
             logger.error(f"HTTP {method} request failed for {url}: {e}")
             # Use response.text if available for error details
-            error_detail = ""
-            if 'response' in locals():
-                error_detail = response.text
+            response_text = None
+            response_obj = None
+            if hasattr(e, 'response') and e.response is not None:
+                response_obj = e.response
+                response_text = e.response.text
+            elif 'response' in locals() and response is not None:
+                response_obj = response
+                response_text = response.text
+            error_message = f"HTTP {method} request failed for {url}: {e}"
+            if response_text:
+                error_message = f"{error_message}\nResponse body: {response_text}"
             raise WeclappAPIError(
-                f"HTTP {method} request failed for {url}: {e}. Details: {error_detail}"
+                error_message, response=response_obj, response_text=response_text
             ) from e
 
     def get(
