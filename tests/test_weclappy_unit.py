@@ -965,5 +965,266 @@ class TestWeclappUnit(unittest.TestCase):
         self.assertFalse(exc.is_optimistic_lock)
 
 
+class TestInferContentType(unittest.TestCase):
+    """Unit tests for the infer_content_type helper function."""
+
+    def test_infer_pdf(self):
+        """Test PDF content type inference."""
+        from weclappy import infer_content_type
+        self.assertEqual(infer_content_type("document.pdf"), "application/pdf")
+        self.assertEqual(infer_content_type("DOCUMENT.PDF"), "application/pdf")
+
+    def test_infer_images(self):
+        """Test image content type inference."""
+        from weclappy import infer_content_type
+        self.assertEqual(infer_content_type("photo.jpg"), "image/jpeg")
+        self.assertEqual(infer_content_type("photo.jpeg"), "image/jpeg")
+        self.assertEqual(infer_content_type("image.png"), "image/png")
+        self.assertEqual(infer_content_type("animation.gif"), "image/gif")
+        self.assertEqual(infer_content_type("modern.webp"), "image/webp")
+
+    def test_infer_office_documents(self):
+        """Test Office document content type inference."""
+        from weclappy import infer_content_type
+        self.assertEqual(infer_content_type("doc.docx"),
+                         "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+        self.assertEqual(infer_content_type("sheet.xlsx"),
+                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+    def test_infer_unknown_extension(self):
+        """Test that unknown extensions return None."""
+        from weclappy import infer_content_type
+        self.assertIsNone(infer_content_type("file.unknown"))
+        self.assertIsNone(infer_content_type("file.xyz123"))
+
+    def test_infer_no_extension(self):
+        """Test files without extension."""
+        from weclappy import infer_content_type
+        self.assertIsNone(infer_content_type("filename"))
+        self.assertIsNone(infer_content_type(""))
+        self.assertIsNone(infer_content_type(None))
+
+
+class TestUploadMethod(unittest.TestCase):
+    """Unit tests for the Weclapp.upload method."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.base_url = "https://test.weclapp.com/webapp/api/v1"
+        self.api_key = "test_api_key"
+        self.weclapp = Weclapp(self.base_url, self.api_key)
+
+    @patch('weclappy.requests.Session.request')
+    def test_upload_document_with_inferred_content_type(self, mock_request):
+        """Test uploading a document with content type inferred from filename."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"Content-Type": "application/json"}
+        mock_response.content = b'{"result": {"id": "doc123"}}'
+        mock_response.json.return_value = {"result": {"id": "doc123"}}
+        mock_request.return_value = mock_response
+
+        data = b"PDF content here"
+        result = self.weclapp.upload(
+            "document",
+            data=data,
+            action="upload",
+            filename="invoice.pdf",
+            params={"entityName": "salesOrder", "entityId": "123", "name": "Invoice"}
+        )
+
+        # Verify the request
+        mock_request.assert_called_once()
+        call_args = mock_request.call_args
+        self.assertEqual(call_args[0][0], "POST")
+        self.assertEqual(call_args[0][1], "https://test.weclapp.com/webapp/api/v1/document/upload")
+        self.assertEqual(call_args[1]["data"], data)
+        self.assertEqual(call_args[1]["headers"]["Content-Type"], "application/pdf")
+        self.assertEqual(call_args[1]["params"]["entityName"], "salesOrder")
+
+    @patch('weclappy.requests.Session.request')
+    def test_upload_article_image_with_id(self, mock_request):
+        """Test uploading an article image with entity ID."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"Content-Type": "application/json"}
+        mock_response.content = b'{"result": {"success": true}}'
+        mock_response.json.return_value = {"result": {"success": True}}
+        mock_request.return_value = mock_response
+
+        data = b"JPEG image data"
+        result = self.weclapp.upload(
+            "article",
+            data=data,
+            id="art456",
+            action="uploadArticleImage",
+            filename="product.jpg",
+            params={"name": "Main Image", "mainImage": True}
+        )
+
+        # Verify the URL construction
+        mock_request.assert_called_once()
+        call_args = mock_request.call_args
+        self.assertEqual(call_args[0][1], "https://test.weclapp.com/webapp/api/v1/article/id/art456/uploadArticleImage")
+        self.assertEqual(call_args[1]["headers"]["Content-Type"], "image/jpeg")
+
+    @patch('weclappy.requests.Session.request')
+    def test_upload_with_explicit_content_type_override(self, mock_request):
+        """Test that explicit content_type overrides inferred type."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"Content-Type": "application/json"}
+        mock_response.json.return_value = {"result": {"id": "doc123"}}
+        mock_request.return_value = mock_response
+
+        data = b"Some data"
+        result = self.weclapp.upload(
+            "document",
+            data=data,
+            action="upload",
+            content_type="application/pdf",
+            filename="file.unknown",
+            params={"entityName": "contract", "entityId": "789", "name": "Contract"}
+        )
+
+        # Verify explicit content type is used
+        call_args = mock_request.call_args
+        self.assertEqual(call_args[1]["headers"]["Content-Type"], "application/pdf")
+
+    @patch('weclappy.requests.Session.request')
+    def test_upload_fallback_to_octet_stream(self, mock_request):
+        """Test fallback to application/octet-stream when no type can be determined."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"Content-Type": "application/json"}
+        mock_response.json.return_value = {"result": {"id": "doc123"}}
+        mock_request.return_value = mock_response
+
+        data = b"Binary data"
+        result = self.weclapp.upload(
+            "document",
+            data=data,
+            action="upload",
+            params={"entityName": "salesOrder", "entityId": "123", "name": "Data"}
+        )
+
+        # Verify fallback content type
+        call_args = mock_request.call_args
+        self.assertEqual(call_args[1]["headers"]["Content-Type"], "application/octet-stream")
+
+    @patch('weclappy.logger')
+    @patch('weclappy.requests.Session.request')
+    def test_upload_logs_warning_on_content_type_mismatch(self, mock_request, mock_logger):
+        """Test that a warning is logged when content_type doesn't match filename."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"Content-Type": "application/json"}
+        mock_response.json.return_value = {"result": {"id": "doc123"}}
+        mock_request.return_value = mock_response
+
+        data = b"Some data"
+        self.weclapp.upload(
+            "document",
+            data=data,
+            action="upload",
+            content_type="application/pdf",
+            filename="image.png",
+            params={"entityName": "salesOrder", "entityId": "123", "name": "File"}
+        )
+
+        # Verify warning was logged
+        mock_logger.warning.assert_called_once()
+        warning_msg = mock_logger.warning.call_args[0][0]
+        self.assertIn("mismatch", warning_msg.lower())
+        self.assertIn("application/pdf", warning_msg)
+        self.assertIn("image/png", warning_msg)
+
+
+class TestDownloadMethod(unittest.TestCase):
+    """Unit tests for the Weclapp.download method."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.base_url = "https://test.weclapp.com/webapp/api/v1"
+        self.api_key = "test_api_key"
+        self.weclapp = Weclapp(self.base_url, self.api_key)
+
+    @patch('weclappy.requests.Session.request')
+    def test_download_document_by_id(self, mock_request):
+        """Test downloading a document by ID (default action is 'download')."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"Content-Type": "application/pdf"}
+        mock_response.content = b"PDF content"
+        mock_request.return_value = mock_response
+
+        result = self.weclapp.download("document", id="doc123")
+
+        # Verify the URL construction
+        mock_request.assert_called_once()
+        call_args = mock_request.call_args
+        self.assertEqual(call_args[0][1], "https://test.weclapp.com/webapp/api/v1/document/id/doc123/download")
+
+        # Verify binary response
+        self.assertEqual(result["content"], b"PDF content")
+        self.assertEqual(result["content_type"], "application/pdf")
+
+    @patch('weclappy.requests.Session.request')
+    def test_download_with_id_and_action(self, mock_request):
+        """Test downloading with both id and custom action."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"Content-Type": "application/pdf"}
+        mock_response.content = b"Invoice PDF"
+        mock_request.return_value = mock_response
+
+        result = self.weclapp.download(
+            "salesInvoice",
+            id="inv123",
+            action="downloadLatestSalesInvoicePdf"
+        )
+
+        # Verify the URL construction
+        call_args = mock_request.call_args
+        self.assertEqual(
+            call_args[0][1],
+            "https://test.weclapp.com/webapp/api/v1/salesInvoice/id/inv123/downloadLatestSalesInvoicePdf"
+        )
+
+    @patch('weclappy.requests.Session.request')
+    def test_download_article_image(self, mock_request):
+        """Test downloading an article image."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"Content-Type": "image/jpeg"}
+        mock_response.content = b"JPEG image data"
+        mock_request.return_value = mock_response
+
+        result = self.weclapp.download(
+            "article",
+            id="art456",
+            action="downloadArticleImage",
+            params={"articleImageId": "img789"}
+        )
+
+        # Verify binary response for image
+        self.assertEqual(result["content"], b"JPEG image data")
+        self.assertIn("image/jpeg", result["content_type"])
+
+    @patch('weclappy.requests.Session.request')
+    def test_download_with_action_only(self, mock_request):
+        """Test download with action but no id."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"Content-Type": "application/json"}
+        mock_response.json.return_value = {"result": "some data"}
+        mock_request.return_value = mock_response
+
+        result = self.weclapp.download("someEndpoint", action="someAction")
+
+        call_args = mock_request.call_args
+        self.assertEqual(call_args[0][1], "https://test.weclapp.com/webapp/api/v1/someEndpoint/someAction")
+
+
 if __name__ == "__main__":
     unittest.main()

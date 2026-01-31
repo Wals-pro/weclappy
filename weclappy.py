@@ -1,6 +1,7 @@
 import json
 import math
 import logging
+import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urljoin
@@ -11,6 +12,62 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 logger = logging.getLogger(__name__)
+
+# MIME type mapping from file extensions
+MIME_TYPES: Dict[str, str] = {
+    '.pdf': 'application/pdf',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.png': 'image/png',
+    '.gif': 'image/gif',
+    '.webp': 'image/webp',
+    '.svg': 'image/svg+xml',
+    '.bmp': 'image/bmp',
+    '.tiff': 'image/tiff',
+    '.tif': 'image/tiff',
+    '.ico': 'image/x-icon',
+    '.doc': 'application/msword',
+    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    '.xls': 'application/vnd.ms-excel',
+    '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    '.ppt': 'application/vnd.ms-powerpoint',
+    '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    '.csv': 'text/csv',
+    '.txt': 'text/plain',
+    '.xml': 'application/xml',
+    '.json': 'application/json',
+    '.zip': 'application/zip',
+    '.gz': 'application/gzip',
+    '.tar': 'application/x-tar',
+    '.rar': 'application/vnd.rar',
+    '.7z': 'application/x-7z-compressed',
+    '.html': 'text/html',
+    '.htm': 'text/html',
+    '.css': 'text/css',
+    '.js': 'application/javascript',
+    '.mp3': 'audio/mpeg',
+    '.mp4': 'video/mp4',
+    '.wav': 'audio/wav',
+    '.avi': 'video/x-msvideo',
+    '.mov': 'video/quicktime',
+    '.eml': 'message/rfc822',
+    '.msg': 'application/vnd.ms-outlook',
+}
+
+
+def infer_content_type(filename: Optional[str]) -> Optional[str]:
+    """Infer MIME type from filename extension.
+
+    Args:
+        filename: The filename to infer content type from.
+
+    Returns:
+        The inferred MIME type, or None if the extension is not recognized.
+    """
+    if not filename:
+        return None
+    ext = os.path.splitext(filename)[1].lower()
+    return MIME_TYPES.get(ext)
 
 DEFAULT_PAGE_SIZE = 1000
 DEFAULT_MAX_WORKERS = 10
@@ -310,8 +367,20 @@ class Weclapp:
             if "application/json" in content_type:
                 return response.json()
 
-            # Handle PDF or other binary downloads
-            if any(ct in content_type for ct in ("application/pdf", "application/octet-stream", "binary")):
+            # Handle binary downloads (PDF, images, archives, etc.)
+            binary_prefixes = (
+                "application/pdf",
+                "application/octet-stream",
+                "application/zip",
+                "application/gzip",
+                "application/x-tar",
+                "application/x-7z-compressed",
+                "application/vnd.rar",
+                "image/",
+                "audio/",
+                "video/",
+            )
+            if any(content_type.startswith(prefix) or prefix in content_type for prefix in binary_prefixes):
                 return {
                     "content": response.content,
                     "content_type": content_type
@@ -641,3 +710,107 @@ class Weclapp:
 
         # Reuse the unified request approach
         return self._send_request(method, url, json=data, params=params)
+
+    def upload(
+        self,
+        endpoint: str,
+        data: bytes,
+        id: Optional[str] = None,
+        action: Optional[str] = None,
+        params: Optional[Dict[str, Any]] = None,
+        content_type: Optional[str] = None,
+        filename: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Upload binary data (documents, images) to a weclapp endpoint.
+
+        The URL is constructed based on the provided parameters:
+        - If both id and action are provided: {endpoint}/id/{id}/{action}
+        - If only action is provided: {endpoint}/{action}
+        - Otherwise: {endpoint}
+
+        Content type is determined in order of priority:
+        1. Explicit content_type parameter (highest priority)
+        2. Inferred from filename extension
+        3. Falls back to 'application/octet-stream'
+
+        A warning is logged if content_type and filename extension suggest different types.
+
+        :param endpoint: API endpoint (e.g., 'document', 'article').
+        :param data: Binary data to upload.
+        :param id: Optional entity ID for entity-specific uploads.
+        :param action: Optional action name (e.g., 'upload', 'uploadArticleImage').
+        :param params: Query parameters (e.g., entityName, entityId, name for document upload).
+        :param content_type: Explicit MIME type. If not provided, inferred from filename.
+        :param filename: Used for content type inference and logging. Not sent to API unless in params.
+        :return: API response as dict.
+        :raises WeclappAPIError: on request failure.
+        """
+        params = params.copy() if params is not None else {}
+
+        # Determine content type
+        inferred_type = infer_content_type(filename)
+        effective_content_type = content_type or inferred_type or 'application/octet-stream'
+
+        # Warn if explicit content_type differs from inferred type
+        if content_type and inferred_type and content_type != inferred_type:
+            logger.warning(
+                f"Content type mismatch: explicit '{content_type}' differs from "
+                f"inferred '{inferred_type}' for filename '{filename}'"
+            )
+
+        # Build URL based on parameters
+        if id is not None and action is not None:
+            path = f"{endpoint}/id/{id}/{action}"
+        elif action is not None:
+            path = f"{endpoint}/{action}"
+        else:
+            path = endpoint
+
+        url = urljoin(self.base_url, path)
+        logger.debug(f"UPLOAD {url} - Content-Type: {effective_content_type} - Params: {params}")
+
+        # Send request with binary data
+        headers = {"Content-Type": effective_content_type}
+        return self._send_request("POST", url, data=data, headers=headers, params=params)
+
+    def download(
+        self,
+        endpoint: str,
+        id: Optional[str] = None,
+        action: Optional[str] = None,
+        params: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        Download binary data from a weclapp endpoint.
+
+        The URL is constructed based on the provided parameters:
+        - If both id and action are provided: {endpoint}/id/{id}/{action}
+        - If only id is provided: {endpoint}/id/{id}/download
+        - If only action is provided: {endpoint}/{action}
+        - Otherwise: {endpoint}
+
+        :param endpoint: API endpoint (e.g., 'document', 'salesInvoice').
+        :param id: Optional entity ID.
+        :param action: Optional action name (e.g., 'downloadLatestSalesInvoicePdf').
+        :param params: Query parameters.
+        :return: Dict with 'content' (bytes) and 'content_type' keys for binary data,
+                 or regular dict for JSON responses.
+        :raises WeclappAPIError: on request failure.
+        """
+        params = params.copy() if params is not None else {}
+
+        # Build URL based on parameters
+        if id is not None and action is not None:
+            path = f"{endpoint}/id/{id}/{action}"
+        elif id is not None:
+            path = f"{endpoint}/id/{id}/download"
+        elif action is not None:
+            path = f"{endpoint}/{action}"
+        else:
+            path = endpoint
+
+        url = urljoin(self.base_url, path)
+        logger.debug(f"DOWNLOAD {url} - Params: {params}")
+
+        return self._send_request("GET", url, params=params)
