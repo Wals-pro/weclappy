@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Documentation on how to build
 - Remove generated changelog
 
+## [0.3.1] - 2026-01-31
+
+### Fixed
+- Fixed missing project description on PyPI due to case-sensitive README.md filename (renamed from readme.md)
+
 ## [0.3.0] - 2025-01-31
 
 ### Added
