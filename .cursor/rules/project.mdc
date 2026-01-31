@@ -1,0 +1,107 @@
+---
+description: Project conventions for weclappy Python library
+globs: ["**/*.py", "**/*.md"]
+alwaysApply: true
+---
+
+# Weclappy Project Conventions
+
+## Virtual Environment
+
+The project uses a virtual environment located at `.venv` in the project root.
+
+To activate:
+```bash
+source /Users/markus/Projects/weclappy/.venv/bin/activate
+```
+
+To run tests:
+```bash
+source .venv/bin/activate && python -m pytest tests/ -v
+```
+
+## Library Design Patterns
+
+### Polymorphic Method Signatures
+
+All methods that operate on entities follow a consistent pattern with named parameters:
+
+- `endpoint` - The entity type (e.g., 'article', 'salesOrder', 'document')
+- `id` - Optional entity ID, always as a named parameter
+- `action` - Optional action/method name for special operations
+- `params` - Query parameters as a dict
+
+URL construction follows this pattern:
+- With id and action: `{endpoint}/id/{id}/{action}`
+- With id only: `{endpoint}/id/{id}`
+- With action only: `{endpoint}/{action}`
+- Otherwise: `{endpoint}`
+
+### Examples of Consistent API
+
+```python
+# GET single entity
+client.get("article", id="123")
+
+# PUT update
+client.put("article", id="123", data={...})
+
+# DELETE
+client.delete("article", id="123")
+
+# Upload with id and action
+client.upload("article", id="123", action="uploadArticleImage", data=bytes, ...)
+
+# Download with id and action
+client.download("salesInvoice", id="123", action="downloadLatestSalesInvoicePdf")
+```
+
+### Minimal Dependencies
+
+The library only depends on `requests`. Avoid adding new dependencies unless absolutely necessary.
+
+### Return Types
+
+- Binary responses return `{"content": bytes, "content_type": str}`
+- JSON responses return parsed dicts or lists
+- Structured responses use `WeclappResponse` when `return_weclapp_response=True`
+
+## Testing
+
+- Unit tests in `tests/test_weclappy_unit.py` use mocks
+- Integration tests in `tests/test_weclappy_integration.py` require live API credentials
+- Run unit tests: `python -m pytest tests/test_weclappy_unit.py -v`
+
+## Changelog
+
+IMPORTANT: Always update `CHANGELOG.md` when making changes to the library.
+
+- Add new features under `## Unreleased` section
+- Use Keep a Changelog format: Added, Changed, Deprecated, Removed, Fixed, Security
+- When releasing, move Unreleased items to a new version section with date
+- Be specific about what changed and why it matters to users
+
+## Deployment
+
+Releases are published automatically via GitHub Actions when a release is created.
+
+1. Update version in `pyproject.toml`
+2. Update `CHANGELOG.md` with release date
+3. Commit, push, and create a GitHub Release with tag `vX.Y.Z`
+
+See `PYPI.md` for detailed instructions.
+
+## Library Scope
+
+Keep weclappy as a **general-purpose API client**. Include only:
+- HTTP operations (get, post, put, delete, upload, download)
+- Pagination handling
+- Error parsing and structured exceptions
+- Content type inference for uploads
+
+Do NOT include application-specific helpers like:
+- Custom attribute access patterns
+- Tag manipulation helpers
+- Business logic or workflow helpers
+
+These belong in the consuming application, not the library.

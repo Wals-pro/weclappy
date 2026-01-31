@@ -8,8 +8,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 - Documentation on how to build
-- Update readme
 - Remove generated changelog
+
+## [0.3.0] - 2025-01-31
+
+### Added
+- New `upload()` method for uploading documents and images to weclapp entities
+  - Automatic content type inference from filename extension
+  - Optional explicit content type override with mismatch warning
+  - Follows polymorphic pattern with `id` and `action` parameters
+- New `download()` method as a convenience wrapper for binary downloads
+  - Defaults to `download` action when only `id` is provided
+  - Supports custom actions like `downloadLatestSalesInvoicePdf`
+- `MIME_TYPES` dictionary with 37 common file type mappings
+- `infer_content_type()` helper function for content type inference
+- Extended binary response handling for images, audio, video, and archives
+- New example script `examples/upload_document.py`
+- Comprehensive unit tests for upload/download functionality
+- Library design patterns documented in README
+
+### Changed
+- Updated README with Document & Image Uploads section
+- Updated README with Binary Downloads section
+- Updated README with Library Design Patterns section
+- Exported `MIME_TYPES` and `infer_content_type` from package
 
 ## [0.2.1] - 2024-07-14 (approximate)
 

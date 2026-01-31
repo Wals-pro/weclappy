@@ -76,7 +76,3 @@ Desktop.ini
 
 # Environment variables
 .env
-
-# References
-pyweclapp/
-.cursor/
