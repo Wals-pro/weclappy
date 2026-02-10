@@ -36,7 +36,8 @@ class TestWeclappUnit(unittest.TestCase):
         mock_request.assert_called_once_with(
             "GET",
             "https://test.weclapp.com/webapp/api/v1/article/id/123",
-            params={}
+            params={},
+            timeout=120,
         )
 
         # Verify the result
@@ -64,7 +65,8 @@ class TestWeclappUnit(unittest.TestCase):
         mock_request.assert_called_once_with(
             "GET",
             "https://test.weclapp.com/webapp/api/v1/article",
-            params={}
+            params={},
+            timeout=120,
         )
 
         # Verify the result
@@ -105,7 +107,8 @@ class TestWeclappUnit(unittest.TestCase):
         mock_request.assert_called_once_with(
             "GET",
             "https://test.weclapp.com/webapp/api/v1/article",
-            params={"additionalProperties": "currentSalesPrice"}
+            params={"additionalProperties": "currentSalesPrice"},
+            timeout=120,
         )
 
         # Verify the result
@@ -141,7 +144,8 @@ class TestWeclappUnit(unittest.TestCase):
         mock_request.assert_called_once_with(
             "GET",
             "https://test.weclapp.com/webapp/api/v1/article",
-            params={"additionalProperties": "currentSalesPrice,averagePrice"}
+            params={"additionalProperties": "currentSalesPrice,averagePrice"},
+            timeout=120,
         )
 
         # Verify the result
@@ -180,7 +184,8 @@ class TestWeclappUnit(unittest.TestCase):
         mock_request.assert_called_once_with(
             "GET",
             "https://test.weclapp.com/webapp/api/v1/article",
-            params={"includeReferencedEntities": "unitId"}
+            params={"includeReferencedEntities": "unitId"},
+            timeout=120,
         )
 
         # Verify the result
@@ -218,7 +223,8 @@ class TestWeclappUnit(unittest.TestCase):
         mock_request.assert_called_once_with(
             "GET",
             "https://test.weclapp.com/webapp/api/v1/article",
-            params={"includeReferencedEntities": "unitId,articleCategoryId"}
+            params={"includeReferencedEntities": "unitId,articleCategoryId"},
+            timeout=120,
         )
 
         # Verify the result
@@ -262,8 +268,9 @@ class TestWeclappUnit(unittest.TestCase):
             "https://test.weclapp.com/webapp/api/v1/article",
             params={
                 "additionalProperties": "currentSalesPrice",
-                "includeReferencedEntities": "unitId"
-            }
+                "includeReferencedEntities": "unitId",
+            },
+            timeout=120,
         )
 
         # Verify the result
@@ -398,7 +405,8 @@ class TestWeclappUnit(unittest.TestCase):
         mock_request.assert_called_once_with(
             "POST",
             "https://test.weclapp.com/webapp/api/v1/article",
-            json=data
+            json=data,
+            timeout=120,
         )
 
         # Verify the result
@@ -424,7 +432,8 @@ class TestWeclappUnit(unittest.TestCase):
             "PUT",
             "https://test.weclapp.com/webapp/api/v1/article/id/123",
             json=data,
-            params={"ignoreMissingProperties": True}
+            params={"ignoreMissingProperties": True},
+            timeout=120,
         )
 
         # Verify the result
@@ -447,7 +456,8 @@ class TestWeclappUnit(unittest.TestCase):
         mock_request.assert_called_once_with(
             "DELETE",
             "https://test.weclapp.com/webapp/api/v1/article/id/123",
-            params={}
+            params={},
+            timeout=120,
         )
 
         # Verify the result (empty dict for 204 response)
@@ -476,7 +486,8 @@ class TestWeclappUnit(unittest.TestCase):
             "GET",
             "https://test.weclapp.com/webapp/api/v1/salesInvoice/id/123/downloadLatestSalesInvoicePdf",
             json=None,
-            params=None
+            params=None,
+            timeout=120,
         )
 
         # Verify the result

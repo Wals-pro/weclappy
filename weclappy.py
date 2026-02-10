@@ -71,6 +71,7 @@ def infer_content_type(filename: Optional[str]) -> Optional[str]:
 
 DEFAULT_PAGE_SIZE = 1000
 DEFAULT_MAX_WORKERS = 10
+DEFAULT_REQUEST_TIMEOUT = 120  # seconds; weclapp may queue requests up to ~30s before 429
 
 class WeclappAPIError(Exception):
     """Custom exception for Weclapp API errors.
@@ -353,6 +354,7 @@ class Weclapp:
         :return: Dict or binary dict structure (for files).
         :raises WeclappAPIError: if the request fails or returns non-2xx status.
         """
+        kwargs.setdefault("timeout", DEFAULT_REQUEST_TIMEOUT)
         try:
             response = self.session.request(method, url, **kwargs)
             self._check_response(response)
@@ -545,7 +547,9 @@ class Weclapp:
             # Special handling for count endpoint which returns an integer directly
             url = urljoin(self.base_url, count_endpoint)
             logger.debug(f"GET {url} with params {params}")
-            response = self.session.request("GET", url, params=params)
+            response = self.session.request(
+                "GET", url, params=params, timeout=DEFAULT_REQUEST_TIMEOUT
+            )
             self._check_response(response)
             total_count = response.json().get('result', 0) if response.status_code == 200 else 0
 
