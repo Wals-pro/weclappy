@@ -72,6 +72,7 @@ def infer_content_type(filename: Optional[str]) -> Optional[str]:
 DEFAULT_PAGE_SIZE = 1000
 DEFAULT_MAX_WORKERS = 10
 DEFAULT_REQUEST_TIMEOUT = 120  # seconds; weclapp may queue requests up to ~30s before 429
+DEFAULT_BACKOFF_FACTOR = 0.3  # exponential backoff between retries (seconds)
 
 class WeclappAPIError(Exception):
     """Custom exception for Weclapp API errors.
@@ -298,12 +299,12 @@ class Weclapp:
             "AuthenticationToken": api_key
         })
 
-        # Configure HTTP retry strategy
+        # Configure HTTP retry strategy (5xx and 429 with exponential backoff)
         retry_strategy = Retry(
             total=3,
-            backoff_factor=0.3,
-            status_forcelist=[500, 502, 503, 504],
-            allowed_methods=["HEAD", "GET", "OPTIONS", "POST", "PUT", "DELETE"]
+            backoff_factor=DEFAULT_BACKOFF_FACTOR,
+            status_forcelist=[500, 502, 503, 504, 429],
+            allowed_methods=["HEAD", "GET", "OPTIONS", "POST", "PUT", "DELETE"],
         )
 
         # Create an adapter with bigger pool size

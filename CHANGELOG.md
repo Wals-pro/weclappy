@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Default request timeout of 120 seconds for all HTTP requests (aligned with weclapp recommendation of at least one minute). Callers can override by passing `timeout` in request kwargs.
+- Extend existing Retry logic to also handle 429 responses.
 - Documentation on how to build
 - Remove generated changelog
 
