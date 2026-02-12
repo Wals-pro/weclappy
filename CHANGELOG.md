@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 ### Added
+- HTTP request timing logging: every API call logs method, endpoint path, status code, and duration in milliseconds
+- Slow request detection: calls taking >= 2000ms log at WARNING level with `[API_SLOW]` prefix; all others log at INFO with `[API]` prefix
+- Configurable slow threshold via `slow_threshold_ms` parameter in `Weclapp.__init__()` (default: 2000ms)
+- Timing instrumentation covers both `_send_request()` and the direct count endpoint call in threaded `get_all`
+- Query parameters are stripped from logged paths for security (tokens, filters never appear in logs)
 - Default request timeout of 120 seconds for all HTTP requests (aligned with weclapp recommendation of at least one minute). Callers can override by passing `timeout` in request kwargs.
 - Extend existing Retry logic to also handle 429 responses.
 - Documentation on how to build

@@ -2,9 +2,10 @@ import json
 import math
 import logging
 import os
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Optional, Union
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 from dataclasses import dataclass
 
 import requests
@@ -73,6 +74,7 @@ DEFAULT_PAGE_SIZE = 1000
 DEFAULT_MAX_WORKERS = 10
 DEFAULT_REQUEST_TIMEOUT = 120  # seconds; weclapp may queue requests up to ~30s before 429
 DEFAULT_BACKOFF_FACTOR = 0.3  # exponential backoff between retries (seconds)
+SLOW_REQUEST_THRESHOLD_MS = 2000
 
 class WeclappAPIError(Exception):
     """Custom exception for Weclapp API errors.
@@ -282,7 +284,8 @@ class Weclapp:
         base_url: str,
         api_key: str,
         pool_connections: int = 100,
-        pool_maxsize: int = 100
+        pool_maxsize: int = 100,
+        slow_threshold_ms: int = SLOW_REQUEST_THRESHOLD_MS
     ) -> None:
         """
         Initialize the Weclapp client.
@@ -293,6 +296,7 @@ class Weclapp:
         :param pool_maxsize: Maximum number of connections per pool (default=100).
         """
         self.base_url = base_url.rstrip('/') + '/'
+        self.slow_threshold_ms = slow_threshold_ms
         self.session = requests.Session()
         self.session.headers.update({
             "Content-Type": "application/json",
@@ -356,8 +360,13 @@ class Weclapp:
         :raises WeclappAPIError: if the request fails or returns non-2xx status.
         """
         kwargs.setdefault("timeout", DEFAULT_REQUEST_TIMEOUT)
+        path = urlparse(url).path
+        start = time.monotonic()
+        status_code = None
+        error = None
         try:
             response = self.session.request(method, url, **kwargs)
+            status_code = response.status_code
             self._check_response(response)
 
             # If no content or 204 No Content, return an empty dict
@@ -396,6 +405,7 @@ class Weclapp:
                 return {"content": response.text, "content_type": content_type}
 
         except requests.exceptions.RequestException as e:
+            error = e
             logger.error(f"HTTP {method} request failed for {url}: {e}")
             # Use response.text if available for error details
             response_text = None
@@ -412,6 +422,22 @@ class Weclapp:
             raise WeclappAPIError(
                 error_message, response=response_obj, response_text=response_text
             ) from e
+        finally:
+            duration_ms = (time.monotonic() - start) * 1000
+            if error is not None:
+                logger.warning(
+                    f"[API] Weclapp {method} {path} -> ERROR ({duration_ms:.0f}ms) "
+                    f"{type(error).__name__}: {error}"
+                )
+            elif status_code is not None:
+                if duration_ms >= self.slow_threshold_ms:
+                    logger.warning(
+                        f"[API_SLOW] Weclapp {method} {path} -> {status_code} ({duration_ms:.0f}ms)"
+                    )
+                else:
+                    logger.info(
+                        f"[API] Weclapp {method} {path} -> {status_code} ({duration_ms:.0f}ms)"
+                    )
 
     def get(
         self,
@@ -548,11 +574,36 @@ class Weclapp:
             # Special handling for count endpoint which returns an integer directly
             url = urljoin(self.base_url, count_endpoint)
             logger.debug(f"GET {url} with params {params}")
-            response = self.session.request(
-                "GET", url, params=params, timeout=DEFAULT_REQUEST_TIMEOUT
-            )
-            self._check_response(response)
-            total_count = response.json().get('result', 0) if response.status_code == 200 else 0
+            count_path = urlparse(url).path
+            count_start = time.monotonic()
+            count_status = None
+            count_error = None
+            try:
+                response = self.session.request(
+                    "GET", url, params=params, timeout=DEFAULT_REQUEST_TIMEOUT
+                )
+                count_status = response.status_code
+                self._check_response(response)
+                total_count = response.json().get('result', 0) if response.status_code == 200 else 0
+            except requests.exceptions.RequestException as e:
+                count_error = e
+                raise
+            finally:
+                count_duration_ms = (time.monotonic() - count_start) * 1000
+                if count_error is not None:
+                    logger.warning(
+                        f"[API] Weclapp GET {count_path} -> ERROR ({count_duration_ms:.0f}ms) "
+                        f"{type(count_error).__name__}: {count_error}"
+                    )
+                elif count_status is not None:
+                    if count_duration_ms >= self.slow_threshold_ms:
+                        logger.warning(
+                            f"[API_SLOW] Weclapp GET {count_path} -> {count_status} ({count_duration_ms:.0f}ms)"
+                        )
+                    else:
+                        logger.info(
+                            f"[API] Weclapp GET {count_path} -> {count_status} ({count_duration_ms:.0f}ms)"
+                        )
 
             if total_count == 0:
                 logger.info(f"No records found for entity '{entity}'")
