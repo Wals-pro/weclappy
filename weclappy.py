@@ -3,7 +3,7 @@ import math
 import logging
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union, overload
 from urllib.parse import urljoin
 from dataclasses import dataclass
 
@@ -410,6 +410,11 @@ class Weclapp:
                 error_message, response=response_obj, response_text=response_text
             ) from e
 
+    @overload
+    def get(self, endpoint: str, id: Optional[str] = None, params: Optional[Dict[str, Any]] = None, *, return_weclapp_response: Literal[True]) -> WeclappResponse: ...
+    @overload
+    def get(self, endpoint: str, id: Optional[str] = None, params: Optional[Dict[str, Any]] = None, return_weclapp_response: Literal[False] = ...) -> Union[List[Any], Dict[str, Any]]: ...
+
     def get(
         self,
         endpoint: str,
@@ -452,6 +457,11 @@ class Weclapp:
             return response_data
         else:
             return response_data.get('result', [])
+
+    @overload
+    def get_all(self, entity: str, params: Optional[Dict[str, Any]] = None, limit: Optional[int] = None, threaded: bool = False, max_workers: int = DEFAULT_MAX_WORKERS, *, return_weclapp_response: Literal[True]) -> WeclappResponse: ...
+    @overload
+    def get_all(self, entity: str, params: Optional[Dict[str, Any]] = None, limit: Optional[int] = None, threaded: bool = False, max_workers: int = DEFAULT_MAX_WORKERS, return_weclapp_response: Literal[False] = ...) -> List[Any]: ...
 
     def get_all(
         self,
