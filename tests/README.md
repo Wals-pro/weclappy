@@ -11,9 +11,11 @@ This directory contains tests for the weclappy library.
 
 ### Prerequisites
 
-- Python 3.6+
+- Python 3.9+
 - pytest (`pip install pytest`)
 - pytest-cov (optional, for coverage reports: `pip install pytest-cov`)
+
+The project is tested in CI on Python 3.9, 3.10, 3.11, and 3.12.
 
 ### Environment Setup
 

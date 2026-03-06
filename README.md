@@ -34,6 +34,8 @@ Install the package via pip:
 pip install weclappy
 ```
 
+We officially support Python 3.9 and newer. Continuous integration runs on Python 3.9, 3.10, 3.11, and 3.12.
+
 ## Quick Start
 
 ```python
