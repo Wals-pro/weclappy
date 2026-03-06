@@ -373,7 +373,7 @@ URLs are constructed consistently based on the provided parameters:
 # CRUD Operations
 client.get("article", id="123")                    # GET article/id/123
 client.get("article")                              # GET article (list)
-client.post("article", data={...})                 # POST article
+client.post("article", data={...}, params={"dryRun": True})  # POST article?dryRun=true
 client.put("article", id="123", data={...})        # PUT article/id/123
 client.delete("article", id="123")                 # DELETE article/id/123
 

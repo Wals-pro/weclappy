@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [0.4.0] - 2026-03-06
+
 ### Added
 - HTTP request timing logging: every API call logs method, endpoint path, status code, and duration in milliseconds
 - Slow request detection: calls taking >= 2000ms log at WARNING level with `[API_SLOW]` prefix; all others log at INFO with `[API]` prefix
@@ -15,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Query parameters are stripped from logged paths for security (tokens, filters never appear in logs)
 - Default request timeout of 120 seconds for all HTTP requests (aligned with weclapp recommendation of at least one minute). Callers can override by passing `timeout` in request kwargs.
 - Extend existing Retry logic to also handle 429 responses.
+- Added optional params parameter to `post()` for query parameters like `dryRun=true`, consistent with `put()` and `delete()`.
 - Documentation on how to build
 - Remove generated changelog
 

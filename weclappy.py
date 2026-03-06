@@ -684,18 +684,27 @@ class Weclapp:
             else:
                 return results
 
-    def post(self, endpoint: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    def post(
+        self,
+        endpoint: str,
+        data: Dict[str, Any],
+        params: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """
         Perform a POST request to the given endpoint.
 
         :param endpoint: API endpoint.
         :param data: Data to post.
+        :param params: Optional query parameters (e.g., dryRun).
         :return: JSON response.
         :raises WeclappAPIError: on request failure.
         """
         url = urljoin(self.base_url, endpoint)
-        logger.debug(f"POST {url} - Data: {data}")
-        return self._send_request("POST", url, json=data)
+        logger.debug(f"POST {url} - Data: {data} - Params: {params}")
+        request_kwargs: Dict[str, Any] = {"json": data}
+        if params is not None:
+            request_kwargs["params"] = params
+        return self._send_request("POST", url, **request_kwargs)
 
     def put(self, endpoint: str, id: str, data: Dict[str, Any], params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """

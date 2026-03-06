@@ -414,6 +414,33 @@ class TestWeclappUnit(unittest.TestCase):
         self.assertEqual(result["name"], "New Article")
 
     @patch('weclappy.requests.Session.request')
+    def test_post_with_params(self, mock_request):
+        """Test post method with query params."""
+        # Mock response
+        mock_response = MagicMock()
+        mock_response.status_code = 201
+        mock_response.headers = {"Content-Type": "application/json"}
+        mock_response.json.return_value = {"id": "123", "name": "Draft Quotation"}
+        mock_request.return_value = mock_response
+
+        # Call the method
+        data = {"name": "Draft Quotation"}
+        result = self.weclapp.post("quotation", data, params={"dryRun": True})
+
+        # Verify the request
+        mock_request.assert_called_once_with(
+            "POST",
+            "https://test.weclapp.com/webapp/api/v1/quotation",
+            json=data,
+            params={"dryRun": True},
+            timeout=120,
+        )
+
+        # Verify the result
+        self.assertEqual(result["id"], "123")
+        self.assertEqual(result["name"], "Draft Quotation")
+
+    @patch('weclappy.requests.Session.request')
     def test_put(self, mock_request):
         """Test put method."""
         # Mock response
