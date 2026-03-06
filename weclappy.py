@@ -4,13 +4,16 @@ import logging
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union, overload
 from urllib.parse import urljoin, urlparse
 from dataclasses import dataclass
 
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+
+if TYPE_CHECKING:
+    from typing import Literal
 
 logger = logging.getLogger(__name__)
 
@@ -440,9 +443,9 @@ class Weclapp:
                     )
 
     @overload
-    def get(self, endpoint: str, id: Optional[str] = None, params: Optional[Dict[str, Any]] = None, *, return_weclapp_response: Literal[True]) -> WeclappResponse: ...
+    def get(self, endpoint: str, id: Optional[str] = None, params: Optional[Dict[str, Any]] = None, return_weclapp_response: "Literal[True]" = ...) -> WeclappResponse: ...
     @overload
-    def get(self, endpoint: str, id: Optional[str] = None, params: Optional[Dict[str, Any]] = None, return_weclapp_response: Literal[False] = ...) -> Union[List[Any], Dict[str, Any]]: ...
+    def get(self, endpoint: str, id: Optional[str] = None, params: Optional[Dict[str, Any]] = None, return_weclapp_response: "Literal[False]" = ...) -> Union[List[Any], Dict[str, Any]]: ...
 
     def get(
         self,
@@ -488,9 +491,9 @@ class Weclapp:
             return response_data.get('result', [])
 
     @overload
-    def get_all(self, entity: str, params: Optional[Dict[str, Any]] = None, limit: Optional[int] = None, threaded: bool = False, max_workers: int = DEFAULT_MAX_WORKERS, *, return_weclapp_response: Literal[True]) -> WeclappResponse: ...
+    def get_all(self, entity: str, params: Optional[Dict[str, Any]] = None, limit: Optional[int] = None, threaded: bool = False, max_workers: int = DEFAULT_MAX_WORKERS, return_weclapp_response: "Literal[True]" = ...) -> WeclappResponse: ...
     @overload
-    def get_all(self, entity: str, params: Optional[Dict[str, Any]] = None, limit: Optional[int] = None, threaded: bool = False, max_workers: int = DEFAULT_MAX_WORKERS, return_weclapp_response: Literal[False] = ...) -> List[Any]: ...
+    def get_all(self, entity: str, params: Optional[Dict[str, Any]] = None, limit: Optional[int] = None, threaded: bool = False, max_workers: int = DEFAULT_MAX_WORKERS, return_weclapp_response: "Literal[False]" = ...) -> List[Any]: ...
 
     def get_all(
         self,
