@@ -36,7 +36,8 @@ class TestWeclappUnit(unittest.TestCase):
         mock_request.assert_called_once_with(
             "GET",
             "https://test.weclapp.com/webapp/api/v1/article/id/123",
-            params={}
+            params={},
+            timeout=120,
         )
 
         # Verify the result
@@ -64,7 +65,8 @@ class TestWeclappUnit(unittest.TestCase):
         mock_request.assert_called_once_with(
             "GET",
             "https://test.weclapp.com/webapp/api/v1/article",
-            params={}
+            params={},
+            timeout=120,
         )
 
         # Verify the result
@@ -105,7 +107,8 @@ class TestWeclappUnit(unittest.TestCase):
         mock_request.assert_called_once_with(
             "GET",
             "https://test.weclapp.com/webapp/api/v1/article",
-            params={"additionalProperties": "currentSalesPrice"}
+            params={"additionalProperties": "currentSalesPrice"},
+            timeout=120,
         )
 
         # Verify the result
@@ -141,7 +144,8 @@ class TestWeclappUnit(unittest.TestCase):
         mock_request.assert_called_once_with(
             "GET",
             "https://test.weclapp.com/webapp/api/v1/article",
-            params={"additionalProperties": "currentSalesPrice,averagePrice"}
+            params={"additionalProperties": "currentSalesPrice,averagePrice"},
+            timeout=120,
         )
 
         # Verify the result
@@ -180,7 +184,8 @@ class TestWeclappUnit(unittest.TestCase):
         mock_request.assert_called_once_with(
             "GET",
             "https://test.weclapp.com/webapp/api/v1/article",
-            params={"includeReferencedEntities": "unitId"}
+            params={"includeReferencedEntities": "unitId"},
+            timeout=120,
         )
 
         # Verify the result
@@ -218,7 +223,8 @@ class TestWeclappUnit(unittest.TestCase):
         mock_request.assert_called_once_with(
             "GET",
             "https://test.weclapp.com/webapp/api/v1/article",
-            params={"includeReferencedEntities": "unitId,articleCategoryId"}
+            params={"includeReferencedEntities": "unitId,articleCategoryId"},
+            timeout=120,
         )
 
         # Verify the result
@@ -262,8 +268,9 @@ class TestWeclappUnit(unittest.TestCase):
             "https://test.weclapp.com/webapp/api/v1/article",
             params={
                 "additionalProperties": "currentSalesPrice",
-                "includeReferencedEntities": "unitId"
-            }
+                "includeReferencedEntities": "unitId",
+            },
+            timeout=120,
         )
 
         # Verify the result
@@ -398,12 +405,40 @@ class TestWeclappUnit(unittest.TestCase):
         mock_request.assert_called_once_with(
             "POST",
             "https://test.weclapp.com/webapp/api/v1/article",
-            json=data
+            json=data,
+            timeout=120,
         )
 
         # Verify the result
         self.assertEqual(result["id"], "123")
         self.assertEqual(result["name"], "New Article")
+
+    @patch('weclappy.requests.Session.request')
+    def test_post_with_params(self, mock_request):
+        """Test post method with query params."""
+        # Mock response
+        mock_response = MagicMock()
+        mock_response.status_code = 201
+        mock_response.headers = {"Content-Type": "application/json"}
+        mock_response.json.return_value = {"id": "123", "name": "Draft Quotation"}
+        mock_request.return_value = mock_response
+
+        # Call the method
+        data = {"name": "Draft Quotation"}
+        result = self.weclapp.post("quotation", data, params={"dryRun": True})
+
+        # Verify the request
+        mock_request.assert_called_once_with(
+            "POST",
+            "https://test.weclapp.com/webapp/api/v1/quotation",
+            json=data,
+            params={"dryRun": True},
+            timeout=120,
+        )
+
+        # Verify the result
+        self.assertEqual(result["id"], "123")
+        self.assertEqual(result["name"], "Draft Quotation")
 
     @patch('weclappy.requests.Session.request')
     def test_put(self, mock_request):
@@ -424,7 +459,8 @@ class TestWeclappUnit(unittest.TestCase):
             "PUT",
             "https://test.weclapp.com/webapp/api/v1/article/id/123",
             json=data,
-            params={"ignoreMissingProperties": True}
+            params={"ignoreMissingProperties": True},
+            timeout=120,
         )
 
         # Verify the result
@@ -447,7 +483,8 @@ class TestWeclappUnit(unittest.TestCase):
         mock_request.assert_called_once_with(
             "DELETE",
             "https://test.weclapp.com/webapp/api/v1/article/id/123",
-            params={}
+            params={},
+            timeout=120,
         )
 
         # Verify the result (empty dict for 204 response)
@@ -476,7 +513,8 @@ class TestWeclappUnit(unittest.TestCase):
             "GET",
             "https://test.weclapp.com/webapp/api/v1/salesInvoice/id/123/downloadLatestSalesInvoicePdf",
             json=None,
-            params=None
+            params=None,
+            timeout=120,
         )
 
         # Verify the result
@@ -1224,6 +1262,151 @@ class TestDownloadMethod(unittest.TestCase):
 
         call_args = mock_request.call_args
         self.assertEqual(call_args[0][1], "https://test.weclapp.com/webapp/api/v1/someEndpoint/someAction")
+
+
+class TestRequestTimingLogging(unittest.TestCase):
+    """Tests for HTTP request timing logging."""
+
+    def setUp(self):
+        self.base_url = "https://test.weclapp.com/webapp/api/v1"
+        self.api_key = "test_api_key"
+        self.weclapp = Weclapp(self.base_url, self.api_key)
+
+    @patch('weclappy.time.monotonic')
+    @patch('weclappy.logger')
+    @patch('weclappy.requests.Session.request')
+    def test_normal_request_logs_info_with_api_prefix(self, mock_request, mock_logger, mock_monotonic):
+        """Normal request logs at INFO with [API] prefix and correct format."""
+        mock_monotonic.side_effect = [0.0, 0.342]
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"Content-Type": "application/json"}
+        mock_response.json.return_value = {"id": "123", "name": "Test"}
+        mock_request.return_value = mock_response
+
+        self.weclapp.get("salesOrder", id="123")
+
+        mock_logger.info.assert_any_call(
+            "[API] Weclapp GET /webapp/api/v1/salesOrder/id/123 -> 200 (342ms)"
+        )
+
+    @patch('weclappy.time.monotonic')
+    @patch('weclappy.logger')
+    @patch('weclappy.requests.Session.request')
+    def test_slow_request_logs_warning_with_api_slow_prefix(self, mock_request, mock_logger, mock_monotonic):
+        """Slow request (>= threshold) logs at WARNING with [API_SLOW] prefix."""
+        mock_monotonic.side_effect = [0.0, 3.421]
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"Content-Type": "application/json"}
+        mock_response.json.return_value = {"result": []}
+        mock_request.return_value = mock_response
+
+        self.weclapp.get("shipment")
+
+        mock_logger.warning.assert_any_call(
+            "[API_SLOW] Weclapp GET /webapp/api/v1/shipment -> 200 (3421ms)"
+        )
+
+    @patch('weclappy.time.monotonic')
+    @patch('weclappy.logger')
+    @patch('weclappy.requests.Session.request')
+    def test_error_request_logs_warning_with_error_status(self, mock_request, mock_logger, mock_monotonic):
+        """Error request logs at WARNING with ERROR status and exception info."""
+        mock_monotonic.side_effect = [0.0, 5.123]
+        mock_request.side_effect = requests.exceptions.ConnectionError("Connection refused")
+
+        with self.assertRaises(WeclappAPIError):
+            self.weclapp.put("salesOrder", id="12345", data={"name": "Test"})
+
+        mock_logger.warning.assert_any_call(
+            "[API] Weclapp PUT /webapp/api/v1/salesOrder/id/12345 -> ERROR (5123ms) "
+            "ConnectionError: Connection refused"
+        )
+
+    @patch('weclappy.time.monotonic')
+    @patch('weclappy.logger')
+    @patch('weclappy.requests.Session.request')
+    def test_count_endpoint_in_threaded_get_all_is_logged(self, mock_request, mock_logger, mock_monotonic):
+        """The count endpoint in threaded get_all is also timed and logged."""
+        mock_monotonic.side_effect = [0.0, 0.156, 0.2, 0.5]
+
+        count_response = MagicMock()
+        count_response.status_code = 200
+        count_response.json.return_value = {"result": 1}
+
+        page_response = MagicMock()
+        page_response.status_code = 200
+        page_response.headers = {"Content-Type": "application/json"}
+        page_response.json.return_value = {"result": [{"id": "1"}]}
+
+        mock_request.side_effect = [count_response, page_response]
+
+        self.weclapp.get_all("salesOrder", threaded=True)
+
+        mock_logger.info.assert_any_call(
+            "[API] Weclapp GET /webapp/api/v1/salesOrder/count -> 200 (156ms)"
+        )
+
+    def test_default_slow_threshold_ms(self):
+        """Default slow_threshold_ms is 2000."""
+        self.assertEqual(self.weclapp.slow_threshold_ms, 2000)
+
+    def test_custom_slow_threshold_ms_in_constructor(self):
+        """Custom slow_threshold_ms in constructor is respected."""
+        weclapp = Weclapp(self.base_url, self.api_key, slow_threshold_ms=500)
+        self.assertEqual(weclapp.slow_threshold_ms, 500)
+
+    @patch('weclappy.time.monotonic')
+    @patch('weclappy.logger')
+    @patch('weclappy.requests.Session.request')
+    def test_custom_slow_threshold_triggers_warning(self, mock_request, mock_logger, mock_monotonic):
+        """Custom slow threshold triggers WARNING at the configured value."""
+        weclapp = Weclapp(self.base_url, self.api_key, slow_threshold_ms=500)
+        mock_monotonic.side_effect = [0.0, 0.6]  # 600ms > 500ms threshold
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"Content-Type": "application/json"}
+        mock_response.json.return_value = {"id": "123"}
+        mock_request.return_value = mock_response
+
+        weclapp.get("article", id="123")
+
+        mock_logger.warning.assert_any_call(
+            "[API_SLOW] Weclapp GET /webapp/api/v1/article/id/123 -> 200 (600ms)"
+        )
+
+    @patch('weclappy.time.monotonic')
+    @patch('weclappy.logger')
+    @patch('weclappy.requests.Session.request')
+    def test_query_params_not_in_logged_path(self, mock_request, mock_logger, mock_monotonic):
+        """Query params are never included in logged path."""
+        mock_monotonic.side_effect = [0.0, 0.1]
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"Content-Type": "application/json"}
+        mock_response.json.return_value = {"result": []}
+        mock_request.return_value = mock_response
+
+        self.weclapp.get("salesOrder", params={"token": "secret123", "filter": "active"})
+
+        # Verify the exact log message contains only the path, no query params
+        mock_logger.info.assert_any_call(
+            "[API] Weclapp GET /webapp/api/v1/salesOrder -> 200 (100ms)"
+        )
+
+        # Verify no timing log call contains sensitive query params
+        all_calls = mock_logger.info.call_args_list + mock_logger.warning.call_args_list
+        for call_args in all_calls:
+            if call_args[0]:
+                msg = str(call_args[0][0])
+                if "[API]" in msg or "[API_SLOW]" in msg:
+                    self.assertNotIn("secret123", msg)
+                    self.assertNotIn("token=", msg)
 
 
 if __name__ == "__main__":
