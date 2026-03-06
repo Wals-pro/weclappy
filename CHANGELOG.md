@@ -21,6 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Documentation on how to build
 - Remove generated changelog
 
+### Fixed
+- Fixed `examples/get_with_both_parameters.py` to handle referenced entity responses returned as dictionaries keyed by id.
+- Updated `examples/crud_operations.py` to use the current `party` endpoint instead of the deprecated `contact` endpoint, with cleanup of temporary test data.
+
 ## [0.3.1] - 2026-01-31
 
 ### Fixed

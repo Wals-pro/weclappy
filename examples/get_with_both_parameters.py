@@ -74,8 +74,11 @@ try:
                 # Average price
                 if 'averagePrice' in response.additional_properties:
                     avg_price = response.additional_properties['averagePrice'][i-1]
-                    if avg_price:
+                    if isinstance(avg_price, dict):
                         price = avg_price.get('amountInCompanyCurrency', 'N/A')
+                        logging.info(f"     Average Price: {price}")
+                    elif avg_price is not None:
+                        price = avg_price
                         logging.info(f"     Average Price: {price}")
 
                 # Current sales price
@@ -84,17 +87,26 @@ try:
                     if sales_price and isinstance(sales_price, dict):
                         price = sales_price.get('articleUnitPrice', 'N/A')
                         logging.info(f"     Current Sales Price: {price}")
+                    elif sales_price is not None:
+                        logging.info(f"     Current Sales Price: {sales_price}")
 
             # Display referenced entity details if available
             if response.referenced_entities and 'unit' in response.referenced_entities:
-                # Find the unit in the list of units
+                # referencedEntities may be returned as either a dict keyed by id or a list
+                unit_entities = response.referenced_entities['unit']
                 unit = None
-                for u in response.referenced_entities['unit']:
-                    if u.get('id') == unit_id:
-                        unit = u
-                        break
+                if isinstance(unit_entities, dict):
+                    unit = unit_entities.get(unit_id)
+                elif isinstance(unit_entities, list):
+                    for u in unit_entities:
+                        if isinstance(u, dict) and u.get('id') == unit_id:
+                            unit = u
+                            break
 
                 if unit:
+                    if unit_name == 'N/A':
+                        unit_name = unit.get('name', 'N/A')
+                        logging.info(f"     Unit Name: {unit_name}")
                     description = unit.get('description', 'N/A')
                     logging.info(f"     Unit Description: {description}")
     else:

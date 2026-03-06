@@ -2,6 +2,7 @@ from weclappy import Weclapp, WeclappAPIError
 from dotenv import load_dotenv
 import logging
 import os
+import time
 
 # Simple example: Basic CRUD operations
 # This demonstrates how to create, read, update, and delete entities
@@ -14,43 +15,58 @@ logging.basicConfig(level=logging.INFO, format='%(message)s')
 
 # Initialize the Weclapp client
 weclapp = Weclapp(os.environ["WECLAPP_BASE_URL"], os.environ["WECLAPP_API_KEY"])
+party_id = None
+unique_suffix = str(int(time.time()))
+customer_number = f"WEC{unique_suffix}"
+initial_email = f"john.doe.{unique_suffix}@example.com"
+updated_email = f"john.doe.updated.{unique_suffix}@example.com"
 
 try:
-    # 1. CREATE: Create a new contact
-    logging.info("Creating a new contact...")
-    
-    new_contact = weclapp.post("contact", {
+    # 1. CREATE: Create a new party
+    logging.info("Creating a new party...")
+
+    new_party = weclapp.post("party", {
+        "customerNumber": customer_number,
         "partyType": "PERSON",
         "firstName": "John",
         "lastName": "Doe",
-        "email": "john.doe@example.com"
+        "email": initial_email
     })
-    
-    contact_id = new_contact.get('id')
-    logging.info(f"Created contact with ID: {contact_id}")
-    
-    # 2. READ: Get the contact by ID
-    logging.info("\nRetrieving the contact...")
-    
-    contact = weclapp.get("contact", id=contact_id)
-    logging.info(f"Retrieved contact: {contact.get('firstName')} {contact.get('lastName')}")
-    
-    # 3. UPDATE: Update the contact
-    logging.info("\nUpdating the contact...")
-    
-    updated_contact = weclapp.put("contact", contact_id, {
+
+    party_id = new_party.get('id')
+    logging.info(f"Created party with ID: {party_id}")
+
+    # 2. READ: Get the party by ID
+    logging.info("\nRetrieving the party...")
+
+    party = weclapp.get("party", id=party_id)
+    logging.info(f"Retrieved party: {party.get('firstName')} {party.get('lastName')}")
+
+    # 3. UPDATE: Update the party
+    logging.info("\nUpdating the party...")
+
+    updated_party = weclapp.put("party", party_id, {
         "firstName": "John",
-        "lastName": "Doe",
-        "email": "john.doe.updated@example.com"
+        "lastName": "Doe Updated",
+        "email": updated_email
     })
-    
-    logging.info(f"Updated contact email: {updated_contact.get('email')}")
-    
-    # 4. DELETE: Delete the contact
-    logging.info("\nDeleting the contact...")
-    
-    weclapp.delete("contact", contact_id)
-    logging.info("Contact deleted successfully")
-    
+
+    logging.info(f"Updated party email: {updated_party.get('email')}")
+
+    # 4. DELETE: Delete the party
+    logging.info("\nDeleting the party...")
+
+    weclapp.delete("party", party_id)
+    party_id = None
+    logging.info("Party deleted successfully")
+
 except WeclappAPIError as e:
     logging.error(f"API Error: {e}")
+finally:
+    if party_id is not None:
+        try:
+            logging.info("\nCleaning up the temporary party...")
+            weclapp.delete("party", party_id)
+            logging.info("Cleanup delete successful")
+        except WeclappAPIError as cleanup_error:
+            logging.error(f"Cleanup API Error: {cleanup_error}")
