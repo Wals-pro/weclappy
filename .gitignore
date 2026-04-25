@@ -76,3 +76,8 @@ Desktop.ini
 
 # Environment variables
 .env
+
+# Claude Code / MCP local config
+.claude/
+.mcp.json
+CLAUDE.md
