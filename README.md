@@ -16,6 +16,7 @@ The goal of this library is to provide a minimal, threaded client that handles p
 
 ## Features
 
+- **Dynamic Entity Model:** `WeclappEntity` gives you `shipment.id`, `shipment.customer.name`, and `shipment.myCustomField` out of the box. customAttributes are flattened by `internalName`, additionalProperties are merged per row, and `*Id` fields auto-resolve against `referencedEntities`.
 - **Threaded Pagination:** Fetch multiple pages concurrently for enhanced performance.
 - **Document & Image Uploads:** Upload binary files with automatic content type inference.
 - **Binary Downloads:** Download documents, images, and PDFs with a simple API.
@@ -45,10 +46,13 @@ from weclappy import Weclapp
 # Initialize the client with your base URL and API key
 client = Weclapp("https://acme.weclapp.com/webapp/api/v1", "your_api_key")
 
-# Fetch a single entity by ID, e.g., 'salesOrder' with ID '12345'
+# Fetch a single entity by ID, e.g., 'salesOrder' with ID '12345'.
+# Returns a WeclappEntity — both dict-style and attribute-style access work.
 sales_order = client.get("salesOrder", id="12345")
+print(sales_order.id, sales_order.orderNumber)
 
-# Fetch paginated results for an entity, e.g., 'salesOrder' with a filter
+# Fetch paginated results for an entity, e.g., 'salesOrder' with a filter.
+# Returns a list[WeclappEntity].
 sales_orders = client.get_all("salesOrder", { "salesOrderPaymentType-eq": "ADVANCE_PAYMENT" }, threaded=True)
 
 # Create a new entity, e.g., 'salesOrder'
@@ -106,6 +110,84 @@ if sales_order_response.referenced_entities:
     if customer:
         print(f"Customer: {customer.get('name')}")
 ```
+
+## Dynamic Entity Model
+
+Reads return `WeclappEntity` objects — `dict` subclasses with attribute-style
+access. Single-entity GETs are routed via `?id-eq={id}` so the response always
+includes `additionalProperties` and `referencedEntities`, allowing the entity
+wrapper to surface them uniformly.
+
+```python
+shipment = client.get(
+    "shipment",
+    id="12345",
+    params={
+        "additionalProperties": "totalWeight",
+        "includeReferencedEntities": "customerId",
+    },
+)
+
+# Built-in fields by attribute or by key
+shipment.id
+shipment["shipmentNumber"]
+
+# customAttributes are flattened by their internalName
+shipment.carrierTrackingId          # was customAttributes[*].stringValue
+shipment.fragile                    # was customAttributes[*].booleanValue
+
+# *Id fields lazily resolve against referencedEntities
+shipment.customer.name              # follows shipment.customerId
+shipment.customerId                 # raw id is still available
+
+# Per-row additionalProperties merge into the entity
+shipment.totalWeight                # {"value": 12.5}
+```
+
+### Editing custom attributes
+
+Flattened customAttribute fields are writable. `entity.to_payload()` rebuilds
+the original `customAttributes` array so you can hand the result to `put`.
+
+```python
+shipment.carrierTrackingId = "TRACK-99"
+client.put("shipment", id=shipment.id, data=shipment.to_payload())
+```
+
+Built-in entity fields are read-only via attribute syntax — use a plain dict
+or `client.put` with explicit fields to update them.
+
+### Nested entities
+
+Wrapping is recursive: dict-valued fields and dicts inside list fields are
+themselves `WeclappEntity` instances, sharing the parent's `referencedEntities`
+map. customAttribute flattening, `*Id` resolution, and `to_payload()` round-trip
+all work uniformly at every level.
+
+```python
+order = client.get(
+    "salesOrder",
+    id="12345",
+    params={"includeReferencedEntities": "customerId,orderItems.articleId"},
+)
+
+order.orderItems[0].article.articleNumber    # nested *Id auto-resolve
+order.orderItems[0].lineNote                 # nested customAttribute by internalName
+
+# Edit a nested custom attribute and PUT the whole order back.
+order.orderItems[0].lineNote = "fragile - rush"
+client.put("salesOrder", id=order.id, data=order.to_payload())
+```
+
+### Collisions and edge cases
+
+- If a customAttribute `internalName` collides with a built-in field, the
+  built-in wins and a warning is logged. The raw value is still reachable via
+  `entity["customAttributes"]`.
+- Field names that collide with `dict` methods (`items`, `keys`, `values`,
+  `get`, `pop`, `update`, ...) are only reachable via bracket access — e.g.
+  `order["items"][0]` — because attribute access resolves to the bound method.
+  This is inherent to subclassing `dict` and applies at every nesting level.
 
 ## Threaded Pagination
 
@@ -395,6 +477,10 @@ client.call_method("salesOrder", "createSalesInvoice", entity_id="123", method="
 | JSON | Parsed dict or list |
 | Binary (PDF, images, etc.) | `{"content": bytes, "content_type": str}` |
 | Structured | `WeclappResponse` (when `return_weclapp_response=True`) |
+
+## Related Projects
+
+- [weclapp Toolbox](https://github.com/niclas-niclasen/weclapp-toolbox) — Chrome extension with developer tools for weclapp ERP (API views, record IDs, quick navigation)
 
 ## Contributing
 

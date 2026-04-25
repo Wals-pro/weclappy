@@ -5,7 +5,7 @@ import time
 import uuid
 import pytest
 import logging
-from weclappy import Weclapp, WeclappAPIError, WeclappResponse
+from weclappy import Weclapp, WeclappAPIError, WeclappEntity, WeclappResponse
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -276,8 +276,9 @@ def test_error_not_found_structured_fields(client: Weclapp) -> None:
     """
     Test that WeclappAPIError provides structured fields for 404 errors.
     """
-    # Try to get a non-existent entity
-    fake_id = "nonexistent-id-12345678"
+    # Use a valid-format (numeric) id that does not exist. The list-endpoint
+    # routing introduced in 0.5.0 validates id format before looking up.
+    fake_id = "999999"
     
     with pytest.raises(WeclappAPIError) as exc_info:
         client.get("article", id=fake_id)
@@ -351,6 +352,68 @@ def test_error_helper_methods(client: Weclapp) -> None:
     
     logger.info(f"Validation messages: {validation_msgs}")
     logger.info(f"All messages: {all_msgs}")
+
+
+def test_entity_dot_access_and_referenced_id_resolve(client: Weclapp) -> None:
+    """End-to-end: get returns WeclappEntity; *Id auto-resolves across the
+    bucket-name mismatch (customerId -> party bucket) via flat-id fallback."""
+    orders = client.get_all("salesOrder", limit=1, params={"includeReferencedEntities": "customerId"})
+    if not orders:
+        pytest.skip("no sales orders available in tenant")
+    order = orders[0]
+    assert isinstance(order, WeclappEntity)
+    assert order.id == order["id"]
+    assert order.customer["id"] == order.customerId
+    # party uses 'company' or 'firstName'/'lastName' — at least one is non-empty
+    assert order.customer.get("company") or order.customer.get("firstName") or order.customer.get("lastName")
+
+
+def test_entity_nested_wrapping_against_real_order(client: Weclapp) -> None:
+    """Nested orderItems wrap as WeclappEntity; nested *Id resolves against
+    the shared referencedEntities map. Identity is stable across accesses."""
+    orders = client.get_all(
+        "salesOrder",
+        limit=20,
+        params={"includeReferencedEntities": "orderItems.articleId,orderItems.unitId"},
+    )
+    target = next(
+        (o for o in orders if any(it.get("articleId") for it in (o.get("orderItems") or []))),
+        None,
+    )
+    if target is None:
+        pytest.skip("no sales order with article-bearing items in first 20")
+    item = next(it for it in target.orderItems if it.get("articleId"))
+    assert isinstance(item, WeclappEntity)
+    assert item.article.id == item.articleId
+    assert item.unit.id == item.unitId
+    assert item is target.orderItems[target.orderItems.index(item)]
+    assert item.article is item.article
+
+
+def test_custom_attribute_flatten_and_round_trip(client: Weclapp) -> None:
+    """customAttribute flatten works against real weclapp data (which omits
+    internalName on entity-level customAttributes); round-tripping through
+    to_payload + dryRun PUT is accepted."""
+    arts = client.get_all("article", limit=200)
+    target = next(
+        (
+            (a, name)
+            for a in arts
+            for name, (_, vfield, _) in a._custom_attr_index.items()
+            if vfield == "stringValue"
+        ),
+        None,
+    )
+    if target is None:
+        pytest.skip("no article with a writable string customAttribute in first 200")
+    art, name = target
+    setattr(art, name, "weclappy-rt-test")
+    payload = art.to_payload()
+    cas_by_def = {ca["attributeDefinitionId"]: ca for ca in payload["customAttributes"]}
+    target_def = art._custom_attr_index[name][2]
+    assert cas_by_def[target_def]["stringValue"] == "weclappy-rt-test"
+    # dryRun PUT must be accepted by weclapp.
+    client.put("article", id=art.id, data=payload, params={"dryRun": True})
 
 
 def test_successful_request_no_error(client: Weclapp) -> None:

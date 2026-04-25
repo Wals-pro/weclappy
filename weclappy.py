@@ -277,6 +277,316 @@ class WeclappResponse:
         )
 
 
+class WeclappEntity(dict):
+    """A weclapp entity with attribute-style access.
+
+    Wraps a single result row from a weclapp API response. Subclasses ``dict``
+    so existing dict-style access (``entity['id']``, ``entity.get('foo')``)
+    keeps working.
+
+    Behavior on top of ``dict``:
+
+    - ``customAttributes`` are flattened to top-level fields keyed by
+      ``internalName``. The original list remains under
+      ``entity['customAttributes']``.
+    - Per-row ``additionalProperties`` values are merged in at the top level.
+    - ``*Id`` fields lazily resolve to the matching object from the response's
+      ``referencedEntities`` map (e.g. ``entity.customer`` looks up the
+      object referenced by ``entity['customerId']``).
+
+    Mutability:
+
+    - Only flattened customAttribute fields are writable via attribute or
+      item assignment. Reassigning them and then calling :meth:`to_payload`
+      rebuilds the original ``customAttributes`` array with the new values.
+    - All other fields are read-only via attribute syntax (``entity.id = ...``
+      raises ``AttributeError``). Item assignment on the underlying dict is
+      not blocked, but is not a supported pattern.
+    """
+
+    _CUSTOM_ATTRIBUTE_VALUE_FIELDS = (
+        'stringValue',
+        'numberValue',
+        'booleanValue',
+        'dateValue',
+        'entityId',
+        'selectedValueId',
+        'selectedValues',
+    )
+
+    _MAX_WRAP_DEPTH = 64
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        object.__setattr__(self, '_custom_attr_index', {})
+        object.__setattr__(self, '_referenced_entities', {})
+        object.__setattr__(self, '_ref_cache', {})
+        object.__setattr__(self, '_original_keys', set(self.keys()))
+        object.__setattr__(self, '_additional_property_keys', set())
+        object.__setattr__(self, '_attribute_definitions', {})
+
+    @classmethod
+    def from_row(
+        cls,
+        row: Dict[str, Any],
+        additional_properties_for_row: Optional[Dict[str, Any]] = None,
+        referenced_entities: Optional[Dict[str, Dict[str, Any]]] = None,
+        attribute_definitions: Optional[Dict[str, Dict[str, Any]]] = None,
+        _depth: int = 0,
+    ) -> 'WeclappEntity':
+        """Build a WeclappEntity from a single result row.
+
+        Nested dict and list-of-dict values are recursively wrapped as
+        ``WeclappEntity`` so attribute access, customAttribute flattening, and
+        ``*Id`` resolution work uniformly at every level.
+
+        :param row: Raw entity dict from the API ``result`` list.
+        :param additional_properties_for_row: Per-row slice of the response's
+            ``additionalProperties`` (i.e. ``{prop_name: value_for_this_row}``).
+        :param referenced_entities: Shared referenced-entities map produced by
+            ``WeclappResponse.from_api_response`` (``{type: {id: entity_dict}}``).
+        :param attribute_definitions: Map of ``attributeDefinitionId`` to the
+            full definition dict (must contain ``attributeKey``). weclapp does
+            not include ``internalName`` on entity-level customAttributes, so
+            this map is used to derive flattened field names.
+        """
+        if isinstance(row, WeclappEntity):
+            return row
+        if _depth > cls._MAX_WRAP_DEPTH:
+            raise ValueError(
+                f"WeclappEntity wrap depth exceeded {cls._MAX_WRAP_DEPTH}; "
+                "input row is too deeply nested or cyclic."
+            )
+
+        entity = cls(row)
+        object.__setattr__(entity, '_original_keys', set(entity.keys()))
+
+        if referenced_entities:
+            object.__setattr__(entity, '_referenced_entities', referenced_entities)
+        if attribute_definitions:
+            object.__setattr__(entity, '_attribute_definitions', attribute_definitions)
+
+        custom_attributes = entity.get('customAttributes')
+        if isinstance(custom_attributes, list):
+            cls._flatten_custom_attributes(entity, custom_attributes, attribute_definitions)
+
+        if additional_properties_for_row:
+            cls._merge_additional_properties(entity, additional_properties_for_row)
+
+        # Recursively wrap nested dict / list-of-dict values. The raw
+        # customAttributes list is metadata (definitions + values), not entities,
+        # so it stays untouched and is fully owned by the flatten/round-trip pass.
+        for key in list(entity.keys()):
+            if key == 'customAttributes':
+                continue
+            current = entity[key]
+            wrapped = cls._wrap_nested_value(
+                current, referenced_entities, attribute_definitions, _depth + 1
+            )
+            if wrapped is not current:
+                dict.__setitem__(entity, key, wrapped)
+
+        return entity
+
+    @classmethod
+    def _wrap_nested_value(
+        cls,
+        value: Any,
+        referenced_entities: Optional[Dict[str, Dict[str, Any]]],
+        attribute_definitions: Optional[Dict[str, Dict[str, Any]]],
+        depth: int,
+    ) -> Any:
+        """Wrap dicts (and dicts inside lists) as ``WeclappEntity``; pass scalars through."""
+        if isinstance(value, WeclappEntity):
+            return value
+        if isinstance(value, dict):
+            if depth > cls._MAX_WRAP_DEPTH:
+                raise ValueError(
+                    f"WeclappEntity wrap depth exceeded {cls._MAX_WRAP_DEPTH}"
+                )
+            return cls.from_row(
+                value,
+                referenced_entities=referenced_entities,
+                attribute_definitions=attribute_definitions,
+                _depth=depth,
+            )
+        if isinstance(value, list):
+            if depth > cls._MAX_WRAP_DEPTH:
+                raise ValueError(
+                    f"WeclappEntity wrap depth exceeded {cls._MAX_WRAP_DEPTH}"
+                )
+            return [
+                cls._wrap_nested_value(item, referenced_entities, attribute_definitions, depth + 1)
+                for item in value
+            ]
+        return value
+
+    @classmethod
+    def _flatten_custom_attributes(
+        cls,
+        entity: 'WeclappEntity',
+        custom_attributes: List[Any],
+        attribute_definitions: Optional[Dict[str, Dict[str, Any]]] = None,
+    ) -> None:
+        index = entity._custom_attr_index
+        for position, item in enumerate(custom_attributes):
+            if not isinstance(item, dict):
+                continue
+            name = item.get('internalName')
+            if not name:
+                attr_def_id = item.get('attributeDefinitionId')
+                if attr_def_id and attribute_definitions:
+                    defn = attribute_definitions.get(attr_def_id)
+                    if defn:
+                        name = defn.get('attributeKey') or defn.get('internalName')
+            if not name:
+                logger.debug(
+                    "customAttribute at position %d has no resolvable name; skipping flatten",
+                    position,
+                )
+                continue
+            value, value_field = cls._extract_custom_attribute_value(item)
+            if name in entity:
+                logger.warning(
+                    "customAttribute name '%s' collides with existing field; "
+                    "built-in wins. Raw value remains under entity['customAttributes'].",
+                    name,
+                )
+                continue
+            dict.__setitem__(entity, name, value)
+            index[name] = (position, value_field, item.get('attributeDefinitionId'))
+
+    @classmethod
+    def _extract_custom_attribute_value(cls, item: Dict[str, Any]):
+        for field in cls._CUSTOM_ATTRIBUTE_VALUE_FIELDS:
+            if field in item and item[field] is not None:
+                return item[field], field
+        return None, 'stringValue'
+
+    @classmethod
+    def _merge_additional_properties(
+        cls, entity: 'WeclappEntity', additional_props: Dict[str, Any]
+    ) -> None:
+        ap_keys = entity._additional_property_keys
+        for name, value in additional_props.items():
+            if name in entity:
+                logger.warning(
+                    "additionalProperty '%s' collides with existing entity field; "
+                    "built-in wins.",
+                    name,
+                )
+                continue
+            dict.__setitem__(entity, name, value)
+            ap_keys.add(name)
+
+    def __getattr__(self, name):
+        if name.startswith('_'):
+            raise AttributeError(name)
+        if name in self:
+            return self[name]
+        id_key = name + 'Id'
+        if id_key in self:
+            resolved = self._resolve_reference(name, self[id_key])
+            if resolved is not None:
+                return resolved
+        raise AttributeError(name)
+
+    def _resolve_reference(self, name: str, ref_id: Any):
+        """Resolve a stripped ``*Id`` accessor against the shared ref map.
+
+        Tries name-based buckets first (``customer`` / ``customers``); falls
+        back to a flat id lookup across all buckets because weclapp uses
+        unified types under different field names (e.g. ``customerId`` and
+        ``invoiceRecipientId`` both resolve to the ``party`` bucket).
+        """
+        if ref_id is None:
+            return None
+        cache = self._ref_cache
+        if name in cache:
+            return cache[name]
+        ref_map = self._referenced_entities or {}
+        for type_key in (name, name + 's'):
+            type_bucket = ref_map.get(type_key)
+            if type_bucket and ref_id in type_bucket:
+                wrapped = WeclappEntity.from_row(
+                    type_bucket[ref_id],
+                    referenced_entities=ref_map,
+                )
+                cache[name] = wrapped
+                return wrapped
+        # weclapp ids are globally unique within a tenant; the bucket name
+        # often differs from the field-name convention (customerId -> party).
+        for bucket in ref_map.values():
+            if ref_id in bucket:
+                wrapped = WeclappEntity.from_row(
+                    bucket[ref_id],
+                    referenced_entities=ref_map,
+                )
+                cache[name] = wrapped
+                return wrapped
+        return None
+
+    def __setattr__(self, name, value):
+        if name.startswith('_'):
+            object.__setattr__(self, name, value)
+            return
+        index = getattr(self, '_custom_attr_index', None) or {}
+        if name in index:
+            dict.__setitem__(self, name, value)
+            return
+        raise AttributeError(
+            f"WeclappEntity attribute '{name}' is read-only. "
+            "Only flattened customAttribute fields are writable."
+        )
+
+    def to_payload(self) -> Dict[str, Any]:
+        """Return a plain dict suitable for ``put`` / ``post``.
+
+        - Flattened customAttribute fields are folded back into the
+          ``customAttributes`` array under the originally populated typed-value
+          field, preserving any current edits — at every level of nesting.
+        - Keys merged in from ``additionalProperties`` are dropped.
+        - Cached resolved reference objects are not included.
+        - Nested ``WeclappEntity`` values (in dict or list fields) are
+          recursively unwrapped via their own ``to_payload``.
+        """
+        payload: Dict[str, Any] = {}
+        flattened = set(self._custom_attr_index.keys())
+        synthetic = self._additional_property_keys | flattened
+        for key, value in self.items():
+            if key in synthetic or key == 'customAttributes':
+                continue
+            payload[key] = self._unwrap(value)
+
+        custom_attributes_src = self.get('customAttributes')
+        if isinstance(custom_attributes_src, list):
+            if self._custom_attr_index:
+                rebuilt = [
+                    dict(item) if isinstance(item, dict) else item
+                    for item in custom_attributes_src
+                ]
+                for name, (position, value_field, _attr_def_id) in self._custom_attr_index.items():
+                    if 0 <= position < len(rebuilt) and isinstance(rebuilt[position], dict):
+                        for field in self._CUSTOM_ATTRIBUTE_VALUE_FIELDS:
+                            if field in rebuilt[position]:
+                                rebuilt[position][field] = None
+                        rebuilt[position][value_field] = self.get(name)
+                payload['customAttributes'] = rebuilt
+            else:
+                payload['customAttributes'] = list(custom_attributes_src)
+
+        return payload
+
+    @classmethod
+    def _unwrap(cls, value: Any) -> Any:
+        """Recursively turn nested WeclappEntity values back into plain dicts."""
+        if isinstance(value, WeclappEntity):
+            return value.to_payload()
+        if isinstance(value, list):
+            return [cls._unwrap(item) for item in value]
+        return value
+
+
 class Weclapp:
     """
     Client for interacting with the Weclapp API.
@@ -300,6 +610,11 @@ class Weclapp:
         """
         self.base_url = base_url.rstrip('/') + '/'
         self.slow_threshold_ms = slow_threshold_ms
+        # Lazy cache: {attributeDefinitionId: definition_dict}. Populated on
+        # first wrapped read so customAttribute flattening can resolve
+        # internalName via attributeDefinition.attributeKey (weclapp does not
+        # ship internalName on entity-level customAttributes).
+        self._attribute_definitions_by_id: Optional[Dict[str, Dict[str, Any]]] = None
         self.session = requests.Session()
         self.session.headers.update({
             "Content-Type": "application/json",
@@ -442,10 +757,99 @@ class Weclapp:
                         f"[API] Weclapp {method} {path} -> {status_code} ({duration_ms:.0f}ms)"
                     )
 
+    def _wrap_rows(
+        self,
+        rows: List[Dict[str, Any]],
+        additional_properties_global: Optional[Dict[str, List[Any]]],
+        referenced_entities: Optional[Dict[str, Dict[str, Any]]],
+    ) -> List['WeclappEntity']:
+        """Wrap raw result rows as WeclappEntity, slicing additionalProperties per row."""
+        if not rows:
+            return []
+        ap_global = additional_properties_global or {}
+        ref_map = referenced_entities or {}
+        attr_defs = self._ensure_attribute_definitions(rows)
+        wrapped: List[WeclappEntity] = []
+        for index, row in enumerate(rows):
+            per_row: Dict[str, Any] = {}
+            for name, values in ap_global.items():
+                if isinstance(values, list) and index < len(values):
+                    per_row[name] = values[index]
+            wrapped.append(WeclappEntity.from_row(row, per_row, ref_map, attr_defs))
+        return wrapped
+
+    def _ensure_attribute_definitions(
+        self, rows: List[Dict[str, Any]]
+    ) -> Dict[str, Dict[str, Any]]:
+        """Lazily fetch and cache all customAttributeDefinitions on first need.
+
+        Triggered when at least one row (or any nested dict inside it) carries a
+        non-empty ``customAttributes`` list whose items lack ``internalName`` —
+        the only case where the cache is needed to derive flattened field
+        names. Cached for the lifetime of the client.
+        """
+        if self._attribute_definitions_by_id is not None:
+            return self._attribute_definitions_by_id
+        if not self._rows_need_attribute_definitions(rows):
+            return {}
+
+        cache: Dict[str, Dict[str, Any]] = {}
+        try:
+            page = 1
+            while True:
+                params = {'page': page, 'pageSize': DEFAULT_PAGE_SIZE}
+                url = urljoin(self.base_url, 'customAttributeDefinition')
+                data = self._send_request("GET", url, params=params)
+                results = data.get('result', []) if isinstance(data, dict) else []
+                for defn in results:
+                    if isinstance(defn, dict) and 'id' in defn:
+                        cache[defn['id']] = defn
+                if len(results) < DEFAULT_PAGE_SIZE:
+                    break
+                page += 1
+        except WeclappAPIError as exc:
+            logger.warning(
+                "Failed to fetch customAttributeDefinitions; "
+                "customAttribute flattening will skip unnamed entries: %s",
+                exc,
+            )
+            cache = {}
+        self._attribute_definitions_by_id = cache
+        return cache
+
+    @classmethod
+    def _rows_need_attribute_definitions(cls, rows: Any) -> bool:
+        """True if any customAttribute in the response lacks internalName."""
+        if isinstance(rows, dict):
+            cas = rows.get('customAttributes')
+            if isinstance(cas, list):
+                for item in cas:
+                    if isinstance(item, dict) and not item.get('internalName'):
+                        return True
+            for v in rows.values():
+                if isinstance(v, (dict, list)) and cls._rows_need_attribute_definitions(v):
+                    return True
+        elif isinstance(rows, list):
+            for item in rows:
+                if cls._rows_need_attribute_definitions(item):
+                    return True
+        return False
+
+    @staticmethod
+    def _not_found_error(endpoint: str, id_value: str, url: str) -> 'WeclappAPIError':
+        message = f"Entity '{endpoint}' with id '{id_value}' not found"
+        body = json.dumps({"error": "Not Found", "detail": message})
+        synthetic = requests.Response()
+        synthetic.status_code = 404
+        synthetic.url = url
+        synthetic._content = body.encode("utf-8")
+        synthetic.headers["Content-Type"] = "application/json"
+        return WeclappAPIError(message, response=synthetic, response_text=body)
+
     @overload
     def get(self, endpoint: str, id: Optional[str] = None, params: Optional[Dict[str, Any]] = None, return_weclapp_response: "Literal[True]" = ...) -> WeclappResponse: ...
     @overload
-    def get(self, endpoint: str, id: Optional[str] = None, params: Optional[Dict[str, Any]] = None, return_weclapp_response: "Literal[False]" = ...) -> Union[List[Any], Dict[str, Any]]: ...
+    def get(self, endpoint: str, id: Optional[str] = None, params: Optional[Dict[str, Any]] = None, return_weclapp_response: "Literal[False]" = ...) -> Union[List['WeclappEntity'], 'WeclappEntity']: ...
 
     def get(
         self,
@@ -453,42 +857,67 @@ class Weclapp:
         id: Optional[str] = None,
         params: Optional[Dict[str, Any]] = None,
         return_weclapp_response: bool = False
-    ) -> Union[List[Any], Dict[str, Any], WeclappResponse]:
-        """
-        Perform a GET request. If an id is provided, fetch a single record using the
-        URL pattern 'endpoint/id/{id}'. Otherwise, fetch records as a list from the endpoint.
+    ) -> Union[List['WeclappEntity'], 'WeclappEntity', WeclappResponse]:
+        """Perform a GET request and return ``WeclappEntity`` objects.
+
+        Reads always go through the list endpoint. When ``id`` is provided,
+        the request is ``GET {endpoint}?id-eq={id}&pageSize=1``. This ensures
+        ``additionalProperties`` and ``referencedEntities`` are always
+        available to the entity wrapper, so flattened customAttributes and
+        lazy ``*Id`` resolution work uniformly.
 
         :param endpoint: API endpoint.
         :param id: Optional identifier to fetch a single record.
-        :param params: Query parameters. Use this to add 'additionalProperties' and 'includeReferencedEntities' parameters directly.
-        :param return_weclapp_response: If True, returns a WeclappResponse object instead of just the result.
-        :return: A single record as a dict if id is provided, or a list of records otherwise.
-                 If return_weclapp_response is True, returns a WeclappResponse object.
-        :raises WeclappAPIError: on request failure.
+        :param params: Query parameters. Use this to add ``additionalProperties``
+            and ``includeReferencedEntities`` parameters directly.
+        :param return_weclapp_response: If True, returns a ``WeclappResponse``
+            wrapping the entity (list or single) plus the raw response shape.
+        :return: A single ``WeclappEntity`` if ``id`` is provided, or a list
+            of ``WeclappEntity`` otherwise. When ``return_weclapp_response``
+            is True, returns a ``WeclappResponse``.
+        :raises WeclappAPIError: on request failure or when ``id`` lookup
+            yields no result (404 contract preserved).
         """
         params = params.copy() if params is not None else {}
-
-        # Note: Users should add additionalProperties and includeReferencedEntities directly to params
+        url = urljoin(self.base_url, endpoint)
 
         if id is not None:
-            new_endpoint = f"{endpoint}/id/{id}"
-            url = urljoin(self.base_url, new_endpoint)
+            params['id-eq'] = id
+            params['pageSize'] = 1
             logger.debug(f"GET single record from {url} with params {params}")
             response_data = self._send_request("GET", url, params=params)
-        else:
-            url = urljoin(self.base_url, endpoint)
-            logger.debug(f"GET {url} with params {params}")
-            response_data = self._send_request("GET", url, params=params)
+            response = WeclappResponse.from_api_response(response_data)
+            rows = response.result or []
+            if not rows:
+                raise self._not_found_error(endpoint, id, url)
+            wrapped = self._wrap_rows(
+                rows, response.additional_properties, response.referenced_entities
+            )
+            if return_weclapp_response:
+                return WeclappResponse(
+                    result=wrapped[0],
+                    additional_properties=response.additional_properties,
+                    referenced_entities=response.referenced_entities,
+                    raw_response=response.raw_response,
+                )
+            return wrapped[0]
 
-        # Return WeclappResponse object if requested
+        logger.debug(f"GET {url} with params {params}")
+        response_data = self._send_request("GET", url, params=params)
+        response = WeclappResponse.from_api_response(response_data)
+        wrapped = self._wrap_rows(
+            response.result or [],
+            response.additional_properties,
+            response.referenced_entities,
+        )
         if return_weclapp_response:
-            return WeclappResponse.from_api_response(response_data)
-
-        # Otherwise return just the result for backward compatibility
-        if id is not None:
-            return response_data
-        else:
-            return response_data.get('result', [])
+            return WeclappResponse(
+                result=wrapped,
+                additional_properties=response.additional_properties,
+                referenced_entities=response.referenced_entities,
+                raw_response=response.raw_response,
+            )
+        return wrapped
 
     @overload
     def get_all(self, entity: str, params: Optional[Dict[str, Any]] = None, limit: Optional[int] = None, threaded: bool = False, max_workers: int = DEFAULT_MAX_WORKERS, return_weclapp_response: "Literal[True]" = ...) -> WeclappResponse: ...
@@ -564,7 +993,7 @@ class Weclapp:
                 results = results[:limit]
 
             # Prepare the complete response data
-            all_response_data = {
+            all_response_data: Dict[str, Any] = {
                 'result': results
             }
 
@@ -574,11 +1003,20 @@ class Weclapp:
             if all_referenced_entities:
                 all_response_data['referencedEntities'] = all_referenced_entities
 
-            # Return WeclappResponse object if requested, otherwise just the results
+            response = WeclappResponse.from_api_response(all_response_data)
+            wrapped = self._wrap_rows(
+                response.result,
+                response.additional_properties,
+                response.referenced_entities,
+            )
             if return_weclapp_response:
-                return WeclappResponse.from_api_response(all_response_data)
-            else:
-                return results
+                return WeclappResponse(
+                    result=wrapped,
+                    additional_properties=response.additional_properties,
+                    referenced_entities=response.referenced_entities,
+                    raw_response=response.raw_response,
+                )
+            return wrapped
 
         else:
             # Parallel pagination.
@@ -620,7 +1058,14 @@ class Weclapp:
 
             if total_count == 0:
                 logger.info(f"No records found for entity '{entity}'")
-                return results
+                if return_weclapp_response:
+                    return WeclappResponse(
+                        result=[],
+                        additional_properties=None,
+                        referenced_entities=None,
+                        raw_response={'result': []},
+                    )
+                return []
 
             page_size = limit if (limit is not None and limit < DEFAULT_PAGE_SIZE) else DEFAULT_PAGE_SIZE
             total_for_pages = total_count if (limit is None or limit > total_count) else limit
@@ -681,7 +1126,7 @@ class Weclapp:
                 results = results[:limit]
 
             # Prepare the complete response data
-            all_response_data = {
+            all_response_data: Dict[str, Any] = {
                 'result': results
             }
 
@@ -691,11 +1136,20 @@ class Weclapp:
             if all_referenced_entities:
                 all_response_data['referencedEntities'] = all_referenced_entities
 
-            # Return WeclappResponse object if requested, otherwise just the results
+            response = WeclappResponse.from_api_response(all_response_data)
+            wrapped = self._wrap_rows(
+                response.result,
+                response.additional_properties,
+                response.referenced_entities,
+            )
             if return_weclapp_response:
-                return WeclappResponse.from_api_response(all_response_data)
-            else:
-                return results
+                return WeclappResponse(
+                    result=wrapped,
+                    additional_properties=response.additional_properties,
+                    referenced_entities=response.referenced_entities,
+                    raw_response=response.raw_response,
+                )
+            return wrapped
 
     def post(
         self,

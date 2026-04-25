@@ -21,27 +21,43 @@ class TestWeclappUnit(unittest.TestCase):
 
     @patch('weclappy.requests.Session.request')
     def test_get_single_entity(self, mock_request):
-        """Test fetching a single entity by ID."""
-        # Mock response
+        """Single-entity GET routes via id-eq on the list endpoint."""
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.headers = {"Content-Type": "application/json"}
-        mock_response.json.return_value = {"id": "123", "name": "Test Entity"}
+        mock_response.json.return_value = {
+            "result": [{"id": "123", "name": "Test Entity"}]
+        }
         mock_request.return_value = mock_response
 
-        # Call the method
         result = self.weclapp.get("article", id="123")
 
-        # Verify the request
         mock_request.assert_called_once_with(
             "GET",
-            "https://test.weclapp.com/webapp/api/v1/article/id/123",
-            params={},
+            "https://test.weclapp.com/webapp/api/v1/article",
+            params={"id-eq": "123", "pageSize": 1},
             timeout=120,
         )
 
-        # Verify the result
-        self.assertEqual(result, {"id": "123", "name": "Test Entity"})
+        self.assertEqual(result["id"], "123")
+        self.assertEqual(result.name, "Test Entity")
+
+    @patch('weclappy.requests.Session.request')
+    def test_get_single_entity_not_found_raises_404(self, mock_request):
+        """Empty result on id-eq raises a synthetic 404 to preserve the contract."""
+        from weclappy import WeclappAPIError
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"Content-Type": "application/json"}
+        mock_response.json.return_value = {"result": []}
+        mock_request.return_value = mock_response
+
+        with self.assertRaises(WeclappAPIError) as ctx:
+            self.weclapp.get("article", id="missing")
+
+        self.assertTrue(ctx.exception.is_not_found)
+        self.assertEqual(ctx.exception.status_code, 404)
 
     @patch('weclappy.requests.Session.request')
     def test_get_entity_list(self, mock_request):
@@ -1282,13 +1298,15 @@ class TestRequestTimingLogging(unittest.TestCase):
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.headers = {"Content-Type": "application/json"}
-        mock_response.json.return_value = {"id": "123", "name": "Test"}
+        mock_response.json.return_value = {
+            "result": [{"id": "123", "name": "Test"}]
+        }
         mock_request.return_value = mock_response
 
         self.weclapp.get("salesOrder", id="123")
 
         mock_logger.info.assert_any_call(
-            "[API] Weclapp GET /webapp/api/v1/salesOrder/id/123 -> 200 (342ms)"
+            "[API] Weclapp GET /webapp/api/v1/salesOrder -> 200 (342ms)"
         )
 
     @patch('weclappy.time.monotonic')
@@ -1370,13 +1388,13 @@ class TestRequestTimingLogging(unittest.TestCase):
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.headers = {"Content-Type": "application/json"}
-        mock_response.json.return_value = {"id": "123"}
+        mock_response.json.return_value = {"result": [{"id": "123"}]}
         mock_request.return_value = mock_response
 
         weclapp.get("article", id="123")
 
         mock_logger.warning.assert_any_call(
-            "[API_SLOW] Weclapp GET /webapp/api/v1/article/id/123 -> 200 (600ms)"
+            "[API_SLOW] Weclapp GET /webapp/api/v1/article -> 200 (600ms)"
         )
 
     @patch('weclappy.time.monotonic')
@@ -1407,6 +1425,442 @@ class TestRequestTimingLogging(unittest.TestCase):
                 if "[API]" in msg or "[API_SLOW]" in msg:
                     self.assertNotIn("secret123", msg)
                     self.assertNotIn("token=", msg)
+
+
+class TestWeclappEntity(unittest.TestCase):
+    """Unit tests for the WeclappEntity dynamic model."""
+
+    def _row(self):
+        return {
+            "id": "ship-1",
+            "shipmentNumber": "S-1000",
+            "customerId": "cust-1",
+            "customAttributes": [
+                {
+                    "attributeDefinitionId": "def-1",
+                    "internalName": "carrierTrackingId",
+                    "stringValue": "TRACK-42",
+                    "numberValue": None,
+                    "booleanValue": None,
+                },
+                {
+                    "attributeDefinitionId": "def-2",
+                    "internalName": "fragile",
+                    "stringValue": None,
+                    "booleanValue": True,
+                },
+                {
+                    "attributeDefinitionId": "def-3",
+                    "internalName": "weightKg",
+                    "numberValue": "12.5",
+                    "stringValue": None,
+                },
+            ],
+        }
+
+    def test_dict_compat(self):
+        """Existing dict-style access continues to work."""
+        from weclappy import WeclappEntity
+
+        entity = WeclappEntity.from_row(self._row())
+        self.assertEqual(entity["id"], "ship-1")
+        self.assertEqual(entity.get("shipmentNumber"), "S-1000")
+        self.assertIn("customerId", entity)
+
+    def test_attribute_access_for_built_in_field(self):
+        from weclappy import WeclappEntity
+
+        entity = WeclappEntity.from_row(self._row())
+        self.assertEqual(entity.id, "ship-1")
+        self.assertEqual(entity.shipmentNumber, "S-1000")
+
+    def test_custom_attribute_flattening(self):
+        from weclappy import WeclappEntity
+
+        entity = WeclappEntity.from_row(self._row())
+        self.assertEqual(entity.carrierTrackingId, "TRACK-42")
+        self.assertEqual(entity.fragile, True)
+        self.assertEqual(entity.weightKg, "12.5")
+        # Original list still accessible.
+        self.assertEqual(len(entity["customAttributes"]), 3)
+
+    def test_custom_attribute_round_trip_via_to_payload(self):
+        from weclappy import WeclappEntity
+
+        entity = WeclappEntity.from_row(self._row())
+        entity.carrierTrackingId = "TRACK-99"
+        entity.fragile = False
+
+        payload = entity.to_payload()
+
+        # Top-level flattened keys are dropped from payload
+        self.assertNotIn("carrierTrackingId", payload)
+        self.assertNotIn("fragile", payload)
+        self.assertNotIn("weightKg", payload)
+
+        # customAttributes rebuilt with new values in the original slot/field
+        cas_by_internal = {
+            ca["internalName"]: ca for ca in payload["customAttributes"]
+        }
+        self.assertEqual(cas_by_internal["carrierTrackingId"]["stringValue"], "TRACK-99")
+        self.assertEqual(cas_by_internal["fragile"]["booleanValue"], False)
+        # Untouched custom attribute keeps its value
+        self.assertEqual(cas_by_internal["weightKg"]["numberValue"], "12.5")
+
+        # Other built-ins untouched
+        self.assertEqual(payload["id"], "ship-1")
+        self.assertEqual(payload["customerId"], "cust-1")
+
+    def test_built_in_field_is_read_only(self):
+        from weclappy import WeclappEntity
+
+        entity = WeclappEntity.from_row(self._row())
+        with self.assertRaises(AttributeError):
+            entity.id = "other"
+
+    def test_built_in_collision_built_in_wins(self):
+        """If a customAttribute internalName collides with a built-in, built-in wins."""
+        from weclappy import WeclappEntity
+
+        row = {
+            "id": "x",
+            "shipmentNumber": "S-1",
+            "customAttributes": [
+                {
+                    "attributeDefinitionId": "def-1",
+                    "internalName": "shipmentNumber",
+                    "stringValue": "OVERWRITE-ATTEMPT",
+                }
+            ],
+        }
+        with self.assertLogs("weclappy", level="WARNING") as ctx:
+            entity = WeclappEntity.from_row(row)
+        self.assertTrue(any("collides" in m for m in ctx.output))
+        # Built-in retained.
+        self.assertEqual(entity.shipmentNumber, "S-1")
+        # No round-trip entry for this name.
+        payload = entity.to_payload()
+        cas_by_internal = {
+            ca["internalName"]: ca for ca in payload["customAttributes"]
+        }
+        self.assertEqual(
+            cas_by_internal["shipmentNumber"]["stringValue"], "OVERWRITE-ATTEMPT"
+        )
+
+    def test_additional_properties_merge_per_row(self):
+        from weclappy import WeclappEntity
+
+        entity = WeclappEntity.from_row(
+            {"id": "ship-1"},
+            additional_properties_for_row={"totalWeight": {"value": 12.5}},
+        )
+        self.assertEqual(entity.totalWeight, {"value": 12.5})
+        # additionalProperties keys are dropped from to_payload output.
+        payload = entity.to_payload()
+        self.assertNotIn("totalWeight", payload)
+
+    def test_unknown_attribute_raises(self):
+        from weclappy import WeclappEntity
+
+        entity = WeclappEntity.from_row({"id": "x"})
+        with self.assertRaises(AttributeError):
+            _ = entity.nonexistent
+
+    @patch('weclappy.requests.Session.request')
+    def test_get_by_id_returns_entity_with_resolved_reference(self, mock_request):
+        """End-to-end: GET by id, customAttribute flatten, *Id auto-resolve, additional props merge."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"Content-Type": "application/json"}
+        mock_response.json.return_value = {
+            "result": [
+                {
+                    "id": "ship-1",
+                    "shipmentNumber": "S-1000",
+                    "customerId": "cust-1",
+                    "customAttributes": [
+                        {
+                            "attributeDefinitionId": "def-1",
+                            "internalName": "carrierTrackingId",
+                            "stringValue": "TRACK-42",
+                        },
+                    ],
+                }
+            ],
+            "additionalProperties": {
+                "totalWeight": [{"value": 12.5}],
+            },
+            "referencedEntities": {
+                "customer": [
+                    {"id": "cust-1", "name": "Acme GmbH"},
+                ],
+            },
+        }
+        mock_request.return_value = mock_response
+
+        weclapp = Weclapp("https://test.weclapp.com/webapp/api/v1", "test_api_key")
+        shipment = weclapp.get("shipment", id="ship-1")
+
+        # Flattened customAttribute
+        self.assertEqual(shipment.carrierTrackingId, "TRACK-42")
+        # Per-row additionalProperty
+        self.assertEqual(shipment.totalWeight, {"value": 12.5})
+        # Lazy referenced-entity resolve
+        self.assertEqual(shipment.customer.name, "Acme GmbH")
+        # Raw *Id still available
+        self.assertEqual(shipment.customerId, "cust-1")
+
+    def test_referenced_entity_resolution(self):
+        from weclappy import WeclappEntity
+
+        ref_map = {
+            "customer": {
+                "cust-1": {"id": "cust-1", "name": "Acme GmbH"},
+            }
+        }
+        entity = WeclappEntity.from_row(
+            {"id": "ship-1", "customerId": "cust-1"},
+            referenced_entities=ref_map,
+        )
+        # Raw *Id still present
+        self.assertEqual(entity.customerId, "cust-1")
+        # Lazy resolved object via .customer
+        self.assertEqual(entity.customer.id, "cust-1")
+        self.assertEqual(entity.customer.name, "Acme GmbH")
+        # Cached: same object on second access
+        self.assertIs(entity.customer, entity.customer)
+
+    def test_referenced_entity_flat_id_fallback(self):
+        """weclapp uses unified types under different field names (customerId
+        resolves to the party bucket). Flat-id fallback handles this."""
+        from weclappy import WeclappEntity
+
+        ref_map = {
+            "party": {"p-1": {"id": "p-1", "company": "Acme GmbH"}},
+        }
+        entity = WeclappEntity.from_row(
+            {"id": "x", "customerId": "p-1", "invoiceRecipientId": "p-1"},
+            referenced_entities=ref_map,
+        )
+        self.assertEqual(entity.customer.company, "Acme GmbH")
+        self.assertEqual(entity.invoiceRecipient.company, "Acme GmbH")
+
+    def test_custom_attribute_flatten_via_attribute_definitions(self):
+        """When entity-level customAttributes lack internalName (real weclapp
+        shape), the attribute_definitions map is used to derive the field name
+        from the definition's attributeKey."""
+        from weclappy import WeclappEntity
+
+        attr_defs = {
+            "def-1": {"id": "def-1", "attributeKey": "tracking_id"},
+            "def-2": {"id": "def-2", "attributeKey": "fragile"},
+        }
+        entity = WeclappEntity.from_row(
+            {
+                "id": "x",
+                "customAttributes": [
+                    {"attributeDefinitionId": "def-1", "stringValue": "T-1"},
+                    {"attributeDefinitionId": "def-2", "booleanValue": True},
+                ],
+            },
+            attribute_definitions=attr_defs,
+        )
+        self.assertEqual(entity.tracking_id, "T-1")
+        self.assertEqual(entity.fragile, True)
+
+        # Round-trip preserves values back into the customAttributes array.
+        entity.tracking_id = "T-2"
+        payload = entity.to_payload()
+        cas_by_def = {ca["attributeDefinitionId"]: ca for ca in payload["customAttributes"]}
+        self.assertEqual(cas_by_def["def-1"]["stringValue"], "T-2")
+
+
+class TestWeclappEntityNested(unittest.TestCase):
+    """Phase 5: recursive wrapping of nested entity values."""
+
+    def _order_row(self):
+        return {
+            "id": "order-1",
+            "orderNumber": "SO-1",
+            "customerId": "cust-1",
+            "recordAddress": {
+                "street": "Main 1",
+                "city": "Berlin",
+                "countryCode": "DE",
+            },
+            "orderItems": [
+                {
+                    "id": "item-1",
+                    "articleId": "art-1",
+                    "unitId": "unit-1",
+                    "quantity": "2",
+                    "customAttributes": [
+                        {
+                            "attributeDefinitionId": "ndef-1",
+                            "internalName": "lineNote",
+                            "stringValue": "handle with care",
+                        },
+                    ],
+                },
+                {
+                    "id": "item-2",
+                    "articleId": "art-2",
+                    "unitId": "unit-1",
+                    "quantity": "1",
+                    "customAttributes": [],
+                },
+            ],
+            "tags": ["urgent", "vip"],
+        }
+
+    def _ref_map(self):
+        return {
+            "customer": {"cust-1": {"id": "cust-1", "name": "Acme GmbH"}},
+            "article": {
+                "art-1": {"id": "art-1", "articleNumber": "A-001", "name": "Widget"},
+                "art-2": {"id": "art-2", "articleNumber": "A-002", "name": "Gadget"},
+            },
+            "unit": {"unit-1": {"id": "unit-1", "name": "Piece"}},
+        }
+
+    def test_nested_list_items_are_wrapped(self):
+        from weclappy import WeclappEntity
+
+        order = WeclappEntity.from_row(self._order_row(), referenced_entities=self._ref_map())
+        self.assertIsInstance(order.orderItems[0], WeclappEntity)
+        self.assertEqual(order.orderItems[0].id, "item-1")
+        # Raw *Id preserved.
+        self.assertEqual(order.orderItems[0].articleId, "art-1")
+
+    def test_nested_id_resolves_via_shared_ref_map(self):
+        from weclappy import WeclappEntity
+
+        order = WeclappEntity.from_row(self._order_row(), referenced_entities=self._ref_map())
+        self.assertEqual(order.orderItems[0].article.articleNumber, "A-001")
+        self.assertEqual(order.orderItems[1].article.name, "Gadget")
+        self.assertEqual(order.orderItems[0].unit.name, "Piece")
+
+    def test_nested_custom_attribute_flatten(self):
+        from weclappy import WeclappEntity
+
+        order = WeclappEntity.from_row(self._order_row(), referenced_entities=self._ref_map())
+        self.assertEqual(order.orderItems[0].lineNote, "handle with care")
+
+    def test_nested_custom_attribute_round_trip(self):
+        from weclappy import WeclappEntity
+
+        order = WeclappEntity.from_row(self._order_row(), referenced_entities=self._ref_map())
+        order.orderItems[0].lineNote = "fragile - rush"
+
+        payload = order.to_payload()
+
+        # Top-level untouched
+        self.assertEqual(payload["id"], "order-1")
+        # Nested customAttributes rebuilt with edited value under the original typed-value field
+        item_payload = payload["orderItems"][0]
+        self.assertNotIn("lineNote", item_payload)
+        nested_cas = {ca["internalName"]: ca for ca in item_payload["customAttributes"]}
+        self.assertEqual(nested_cas["lineNote"]["stringValue"], "fragile - rush")
+        # Untouched second item retained.
+        self.assertEqual(payload["orderItems"][1]["articleId"], "art-2")
+        # Payload should be plain dicts, not WeclappEntity, all the way down.
+        self.assertIs(type(payload["orderItems"][0]), dict)
+        self.assertIs(type(payload["orderItems"][0]["customAttributes"][0]), dict)
+
+    def test_top_level_dict_field_is_wrapped(self):
+        from weclappy import WeclappEntity
+
+        order = WeclappEntity.from_row(self._order_row())
+        self.assertIsInstance(order.recordAddress, WeclappEntity)
+        self.assertEqual(order.recordAddress.street, "Main 1")
+
+    def test_identity_stable_for_nested_entities(self):
+        from weclappy import WeclappEntity
+
+        order = WeclappEntity.from_row(self._order_row())
+        self.assertIs(order.orderItems[0], order.orderItems[0])
+        self.assertIs(order.recordAddress, order.recordAddress)
+
+    def test_mixed_list_wraps_dicts_only(self):
+        from weclappy import WeclappEntity
+
+        row = {
+            "id": "x",
+            "tags": ["a", "b", "c"],
+            "entries": [{"id": "1"}, "scalar", {"id": "2"}, 42],
+        }
+        entity = WeclappEntity.from_row(row)
+        self.assertEqual(entity.tags, ["a", "b", "c"])
+        self.assertIsInstance(entity.entries[0], WeclappEntity)
+        self.assertEqual(entity.entries[1], "scalar")
+        self.assertIsInstance(entity.entries[2], WeclappEntity)
+        self.assertEqual(entity.entries[3], 42)
+
+    def test_dict_method_name_collision_falls_back_to_bracket_access(self):
+        """Field names that collide with dict methods (items, keys, values, get,
+        pop, update, ...) are only reachable via bracket access; attribute
+        access returns the bound method. This is an inherent property of
+        subclassing dict and applies at every nesting level."""
+        from weclappy import WeclappEntity
+
+        row = {"id": "x", "items": [{"id": "1"}]}
+        entity = WeclappEntity.from_row(row)
+        # Bracket access returns the wrapped list of entities.
+        self.assertIsInstance(entity["items"][0], WeclappEntity)
+        # Attribute access still resolves to the dict.items method.
+        self.assertTrue(callable(entity.items))
+
+    def test_custom_attributes_inner_items_remain_plain(self):
+        """The raw customAttributes list itself is not wrapped — its dicts are metadata."""
+        from weclappy import WeclappEntity
+
+        row = {
+            "id": "x",
+            "customAttributes": [
+                {
+                    "attributeDefinitionId": "d",
+                    "internalName": "foo",
+                    "stringValue": "bar",
+                }
+            ],
+        }
+        entity = WeclappEntity.from_row(row)
+        ca_item = entity["customAttributes"][0]
+        self.assertIs(type(ca_item), dict)
+        self.assertNotIsInstance(ca_item, WeclappEntity)
+
+    def test_from_row_is_idempotent(self):
+        from weclappy import WeclappEntity
+
+        first = WeclappEntity.from_row(self._order_row(), referenced_entities=self._ref_map())
+        second = WeclappEntity.from_row(first)
+        self.assertIs(first, second)
+
+    def test_depth_guard(self):
+        """Pathologically deep nesting raises a clear error rather than recursing forever."""
+        from weclappy import WeclappEntity
+
+        # Build a deeply nested chain via repeated dict-valued field.
+        deep: Any = {"id": "leaf"}
+        for _ in range(WeclappEntity._MAX_WRAP_DEPTH + 5):
+            deep = {"id": "n", "child": deep}
+        with self.assertRaises(ValueError):
+            WeclappEntity.from_row(deep)
+
+    def test_input_row_not_mutated(self):
+        """Wrapping must not mutate the user's input row."""
+        from weclappy import WeclappEntity
+
+        row = self._order_row()
+        original_items = row["orderItems"]
+        original_first_item = original_items[0]
+
+        WeclappEntity.from_row(row, referenced_entities=self._ref_map())
+
+        # Input list and its inner dicts remain plain dicts; identity preserved.
+        self.assertIs(row["orderItems"], original_items)
+        self.assertIs(row["orderItems"][0], original_first_item)
+        self.assertIs(type(row["orderItems"][0]), dict)
 
 
 if __name__ == "__main__":

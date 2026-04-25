@@ -1,3 +1,17 @@
-from .weclappy import Weclapp, WeclappAPIError, WeclappResponse, MIME_TYPES, infer_content_type
+from .weclappy import (
+    Weclapp,
+    WeclappAPIError,
+    WeclappEntity,
+    WeclappResponse,
+    MIME_TYPES,
+    infer_content_type,
+)
 
-__all__ = ["Weclapp", "WeclappAPIError", "WeclappResponse", "MIME_TYPES", "infer_content_type"]
+__all__ = [
+    "Weclapp",
+    "WeclappAPIError",
+    "WeclappEntity",
+    "WeclappResponse",
+    "MIME_TYPES",
+    "infer_content_type",
+]

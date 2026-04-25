@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [0.6.0] - 2026-04-25
+
+### Added
+- `WeclappEntity` recursively wraps nested dict and list-of-dict values, so attribute access, customAttribute flattening, and `*Id` resolution work at every level. Examples:
+  - `order.orderItems[0].article.articleNumber` resolves nested `*Id` against the same `referencedEntities` map.
+  - `order.orderItems[0].myCustomField` reads a flattened nested customAttribute.
+  - Editing a nested customAttribute and calling `order.to_payload()` rebuilds the nested `customAttributes` array under the original typed-value field, alongside the parent payload.
+  - Nested wrappers preserve identity (`order.orderItems[0] is order.orderItems[0]`).
+- `from_row` is idempotent: passing an already-wrapped value returns it unchanged.
+- Defensive `_MAX_WRAP_DEPTH = 64` guard on pathologically deep / cyclic input.
+
+### Fixed (battle-tested against live tenant)
+- `*Id` auto-resolution now falls back to a flat-id lookup across all `referencedEntities` buckets when the bucket name does not match the field-name convention. weclapp uses unified types under different field names (e.g. `customerId`, `invoiceRecipientId`, and `recipientPartyId` all resolve to the `party` bucket), so the previous name-only match returned `None` for the most common case.
+- `customAttribute` flattening now lazily fetches and caches `customAttributeDefinition` on first wrapped read, and uses the definition's `attributeKey` as the flattened field name. Real weclapp responses do not include `internalName` on entity-level `customAttributes` — only `attributeDefinitionId` plus the typed-value field — so 0.6.0's flatten silently no-op'd against real data without this lookup.
+
+### Notes
+- Field names that collide with `dict` methods (`items`, `keys`, `values`, `get`, `pop`, `update`, ...) are only reachable via bracket access at every nesting level (e.g. `entity["items"][0]`), since attribute access resolves to the bound method. This is inherent to subclassing `dict`.
+- The raw `customAttributes` list itself is intentionally not wrapped — its dicts are metadata records owned by the flatten / round-trip pass.
+- The lazy `customAttributeDefinition` fetch issues at most one extra HTTP call per `Weclapp` client lifetime, and only when at least one read returns a `customAttributes` entry without `internalName`. If the fetch fails, flattening degrades gracefully (a warning is logged, raw `customAttributes` remain accessible via bracket access).
+
+## [0.5.0] - 2026-04-25
+
+### Added
+- New `WeclappEntity` class — a `dict` subclass returned by `get` and `get_all` that adds attribute-style access (`shipment.id`, `shipment.customer.name`).
+  - `customAttributes` are flattened to top-level fields keyed by their `internalName`. The original list remains under `entity['customAttributes']`.
+  - Per-row `additionalProperties` values are merged into each entity at the top level.
+  - `*Id` fields lazily resolve to the matching object from `referencedEntities` (e.g. `entity.customer` looks up the object referenced by `entity.customerId`). Raw `*Id` fields are preserved.
+  - Flattened customAttribute fields are writable; `entity.to_payload()` rebuilds the original `customAttributes` array under the originally populated typed-value field, ready for `put`/`post`.
+  - On collisions (customAttribute `internalName` or `additionalProperty` name matching a built-in field), the built-in wins and a warning is logged.
+- `WeclappEntity` is exported from the package root.
+
+### Changed (BREAKING)
+- `client.get(endpoint, id=X)` now routes via `GET {endpoint}?id-eq=X&pageSize=1` instead of `GET {endpoint}/id/{X}`. This guarantees `additionalProperties` and `referencedEntities` are always available to the entity wrapper.
+- Reads (`get`, `get_all`) now return `WeclappEntity` (or a list of them) instead of plain dicts. Existing dict access (`entity['id']`, `entity.get(...)`) keeps working because `WeclappEntity` subclasses `dict`. Code that constructs new dicts via `dict(entity)` or relies on the exact return type may need adjustment.
+- `WeclappResponse.result` likewise now contains `WeclappEntity` objects (or a single one when fetching by id). The unprocessed payload is still available via `WeclappResponse.raw_response`.
+- `id-eq` validates id format on the weclapp side; lookups with non-numeric / out-of-range ids that previously returned 404 may now return 400. The 404 contract is otherwise preserved: an empty result for a valid id raises `WeclappAPIError` with `is_not_found == True` and a synthetic 404 response.
+
+### Notes
+- `*Id` auto-resolution applies to top-level fields only. Nested resolution inside list fields (e.g. `positions[].articleId`) is out of scope for 0.5.0.
+
 ## [0.4.1] - 2026-03-06
 
 ### Added
