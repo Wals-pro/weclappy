@@ -7,17 +7,19 @@ class TestAdditionalPropertiesFix(unittest.TestCase):
 
     def setUp(self):
         """Set up test fixtures."""
-        self.base_url = "https://test.weclapp.com/webapp/api/v1"
+        self.base_url = "https://test.weclapp.com/webapp/api/v2"
         self.api_key = "test_api_key"
         self.weclapp = Weclapp(self.base_url, self.api_key)
 
     def test_fix_for_additional_properties(self):
         """Test that additionalProperties are properly extended across pages."""
-        # Create a sample response with additionalProperties
+        results = []
         all_additional_properties = {}
+        all_referenced_entities = {}
 
         # Page 1 data
         page1_data = {
+            "result": [{"id": "1"}, {"id": "2"}],
             "additionalProperties": {
                 "totalStockQuantity": [
                     {"value": 10},
@@ -28,6 +30,7 @@ class TestAdditionalPropertiesFix(unittest.TestCase):
 
         # Page 2 data
         page2_data = {
+            "result": [{"id": "3"}, {"id": "4"}],
             "additionalProperties": {
                 "totalStockQuantity": [
                     {"value": 30},
@@ -36,19 +39,12 @@ class TestAdditionalPropertiesFix(unittest.TestCase):
             }
         }
 
-        # Simulate processing page 1
-        if 'additionalProperties' in page1_data and page1_data['additionalProperties']:
-            for prop_name, prop_values in page1_data['additionalProperties'].items():
-                if prop_name not in all_additional_properties:
-                    all_additional_properties[prop_name] = []
-                all_additional_properties[prop_name].extend(prop_values)
-
-        # Simulate processing page 2
-        if 'additionalProperties' in page2_data and page2_data['additionalProperties']:
-            for prop_name, prop_values in page2_data['additionalProperties'].items():
-                if prop_name not in all_additional_properties:
-                    all_additional_properties[prop_name] = []
-                all_additional_properties[prop_name].extend(prop_values)
+        self.weclapp._merge_page_response(
+            page1_data, results, all_additional_properties, all_referenced_entities
+        )
+        self.weclapp._merge_page_response(
+            page2_data, results, all_additional_properties, all_referenced_entities
+        )
 
         # Verify that all values were properly extended
         self.assertEqual(len(all_additional_properties["totalStockQuantity"]), 4)
@@ -57,11 +53,13 @@ class TestAdditionalPropertiesFix(unittest.TestCase):
 
     def test_fix_for_referenced_entities(self):
         """Test that referencedEntities are properly merged across pages."""
-        # Create a sample response with referencedEntities
+        results = []
+        all_additional_properties = {}
         all_referenced_entities = {}
 
         # Page 1 data
         page1_data = {
+            "result": [{"id": "1", "unitId": "unit1"}],
             "referencedEntities": {
                 "unit": [
                     {"id": "unit1", "name": "Piece"}
@@ -71,6 +69,7 @@ class TestAdditionalPropertiesFix(unittest.TestCase):
 
         # Page 2 data
         page2_data = {
+            "result": [{"id": "2", "unitId": "unit2"}],
             "referencedEntities": {
                 "unit": [
                     {"id": "unit1", "name": "Piece"},  # Duplicate entity
@@ -79,30 +78,24 @@ class TestAdditionalPropertiesFix(unittest.TestCase):
             }
         }
 
-        # Process referenced entities from page 1
-        raw_referenced_entities = page1_data.get('referencedEntities')
-        if raw_referenced_entities:
-            for entity_type, entities_list in raw_referenced_entities.items():
-                if entity_type not in all_referenced_entities:
-                    all_referenced_entities[entity_type] = {}
-                for entity in entities_list:
-                    if 'id' in entity:
-                        all_referenced_entities[entity_type][entity['id']] = entity
-
-        # Process referenced entities from page 2
-        raw_referenced_entities = page2_data.get('referencedEntities')
-        if raw_referenced_entities:
-            for entity_type, entities_list in raw_referenced_entities.items():
-                if entity_type not in all_referenced_entities:
-                    all_referenced_entities[entity_type] = {}
-                for entity in entities_list:
-                    if 'id' in entity:
-                        all_referenced_entities[entity_type][entity['id']] = entity
+        self.weclapp._merge_page_response(
+            page1_data, results, all_additional_properties, all_referenced_entities
+        )
+        self.weclapp._merge_page_response(
+            page2_data, results, all_additional_properties, all_referenced_entities
+        )
+        response = self.weclapp._finalize_collection_response(
+            results,
+            all_additional_properties,
+            all_referenced_entities,
+            limit=None,
+            return_weclapp_response=True,
+        )
 
         # Verify that entities were properly merged
-        self.assertEqual(len(all_referenced_entities["unit"]), 2)
-        self.assertTrue("unit1" in all_referenced_entities["unit"])
-        self.assertTrue("unit2" in all_referenced_entities["unit"])
+        self.assertEqual(len(response.referenced_entities["unit"]), 2)
+        self.assertIn("unit1", response.referenced_entities["unit"])
+        self.assertIn("unit2", response.referenced_entities["unit"])
 
     def test_integration_with_weclapp_response(self):
         """Test integration with WeclappResponse class."""

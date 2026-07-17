@@ -1,491 +1,507 @@
 # weclappy
 
-The weclapp Python Client.
+A small Python client for the weclapp REST API.
 
-## Motivation
+`weclappy` keeps the API close to ordinary HTTP: choose an endpoint, pass
+query parameters or a JSON payload, and receive Python objects. It adds the
+parts that are useful in most integrations—authentication, connection pooling,
+pagination, safe retries, structured errors, and binary transfers—without
+entity-specific business logic.
 
-There is no lightweight, simple weclapp client library available for Python currently. Let's build it together.
+- Python 3.9+
+- one runtime dependency: [`requests`](https://pypi.org/project/requests/)
+- generic access to the weclapp API instead of generated entity classes
+- sequential or parallel pagination
+- convenient `WeclappEntity` objects that remain compatible with `dict`
 
-## Disclaimer
-
-This package is not affiliated with weclapp GmbH in any way. This is an independent project and subject to constant development and improvement. Until an official release of version 1.0.0, the API may change without notice, breaking your code. This is a mandatory step in the development of any software library to incrementally improve the library quickly and by that be able to fully support the weclapp API soon.
-
-## Overview
-
-The goal of this library is to provide a minimal, threaded client that handles pagination effectively when fetching lists from the weclapp API. It is capable of retrieving large volumes of data by parallelizing page requests, significantly reducing wait times. This library is designed to be lean with no unnecessary bloat, allowing you to get started very quickly.
-
-## Features
-
-- **Dynamic Entity Model:** `WeclappEntity` gives you `shipment.id`, `shipment.customer.name`, and `shipment.myCustomField` out of the box. customAttributes are flattened by `internalName`, additionalProperties are merged per row, and `*Id` fields auto-resolve against `referencedEntities`.
-- **Threaded Pagination:** Fetch multiple pages concurrently for enhanced performance.
-- **Document & Image Uploads:** Upload binary files with automatic content type inference.
-- **Binary Downloads:** Download documents, images, and PDFs with a simple API.
-- **Additional Properties & Referenced Entities:** Support for weclapp API's additionalProperties and referencedEntities parameters.
-- **Structured Response:** Optional WeclappResponse class to handle complex API responses.
-- **Enhanced Error Handling:** Structured error parsing with helper properties for common error types (404, 429, validation errors, optimistic lock conflicts).
-- **Minimal Dependencies:** Only dependency is [`requests`](https://pypi.org/project/requests/).
-- **Simplicity:** A lean bloat free solution to interact with the weclapp API.
-- **Open Source:** Free to use in any project, with contributions and improvements highly welcome.
+This is an independent, community-maintained project and is not affiliated
+with weclapp. The project is still below version 1.0, so public interfaces may
+evolve. Breaking changes are documented in
+[CHANGELOG.md](https://github.com/Wals-pro/weclappy/blob/main/CHANGELOG.md).
+Pin the version in production integrations when reproducible upgrades matter.
 
 ## Installation
 
-Install the package via pip:
-
 ```bash
-pip install weclappy
+python -m pip install weclappy
 ```
 
-We officially support Python 3.9 and newer. Continuous integration runs on Python 3.9, 3.10, 3.11, and 3.12.
+For new integrations, use the weclapp API v2 base URL:
 
-## Quick Start
+```text
+https://your-tenant.weclapp.com/webapp/api/v2
+```
+
+The client does not choose an API version for you; it uses the URL you provide.
+The documentation and examples in this repository target v2.
+
+## Quick start
+
+Keep credentials outside your source code:
+
+```bash
+export WECLAPP_BASE_URL="https://your-tenant.weclapp.com/webapp/api/v2"
+export WECLAPP_API_KEY="your-api-key"
+```
+
+Then make a read-only request:
 
 ```python
+import os
 
 from weclappy import Weclapp
 
-# Initialize the client with your base URL and API key
-client = Weclapp("https://acme.weclapp.com/webapp/api/v1", "your_api_key")
-
-# Fetch a single entity by ID, e.g., 'salesOrder' with ID '12345'.
-# Returns a WeclappEntity — both dict-style and attribute-style access work.
-sales_order = client.get("salesOrder", id="12345")
-print(sales_order.id, sales_order.orderNumber)
-
-# Fetch paginated results for an entity, e.g., 'salesOrder' with a filter.
-# Returns a list[WeclappEntity].
-sales_orders = client.get_all("salesOrder", { "salesOrderPaymentType-eq": "ADVANCE_PAYMENT" }, threaded=True)
-
-# Create a new entity, e.g., 'salesOrder'
-new_sales_order = client.post("salesOrder", { "customerId": "12345", "commission": "Hello, world!" })
-
-# Update an existing entity, e.g., 'salesOrder' with ID '12345', ignoreMissingProperties is True per default
-updated_sales_order = client.put("salesOrder", id="12345", data={ "commission": "Hello, universe!" })
-
-# Delete an entity, e.g., 'salesOrder' with ID '12345'
-client.delete("salesOrder", id="12345")
-
-# Get an invoice PDF
-pdf_response = client.call_method("salesInvoice", "downloadLatestSalesInvoicePdf", sales_invoice["id"], method="GET")
-# { "content": b"...", "content-type": "application/pdf" }
-
-if "content" in pdf_response:
-    pdf_bytes = pdf_response["content"]
-    filename = "Rechnung.pdf"
-
-    # Save the PDF to disk
-    with open(filename, "wb") as f:
-        f.write(pdf_bytes)
-else:
-    # Otherwise, it's likely an error
-    print("Response:", pdf_response)
-
-# Using additionalProperties and referencedEntities
-from weclappy import WeclappResponse
-
-# Get all sales orders with customer details and referenced entities
-sales_order_response = client.get_all(
-    "salesOrder",
-    limit=10,
-    params={
-        "additionalProperties": "customer,positions",  # Comma-separated property names
-        "includeReferencedEntities": "customerId,positions.articleId"  # Comma-separated property paths
-    },
-    return_weclapp_response=True
-)
-
-# Access the main result
-sales_order = sales_order_response.result
-print(f"Sales Order: {sales_order['orderNumber']}")
-
-# Access additional properties if available
-if sales_order_response.additional_properties:
-    customer_data = sales_order_response.additional_properties.get("customer")
-    if customer_data:
-        print(f"Customer: {customer_data[0].get('name')}")
-
-# Access referenced entities if available
-if sales_order_response.referenced_entities:
-    customer_id = sales_order["customerId"]
-    customer = sales_order_response.referenced_entities.get("customer", {}).get(customer_id)
-    if customer:
-        print(f"Customer: {customer.get('name')}")
+with Weclapp(
+    os.environ["WECLAPP_BASE_URL"],
+    os.environ["WECLAPP_API_KEY"],
+) as client:
+    articles = client.get(
+        "article",
+        params={
+            "active-eq": "true",
+            "pageSize": 5,
+            "properties": "id,articleNumber,name",
+            "sort": "id",
+        },
+    )
+    for article in articles:
+        print(article.id, article.articleNumber, article.name)
 ```
 
-## Dynamic Entity Model
-
-Reads return `WeclappEntity` objects — `dict` subclasses with attribute-style
-access. Single-entity GETs are routed via `?id-eq={id}` so the response always
-includes `additionalProperties` and `referencedEntities`, allowing the entity
-wrapper to surface them uniformly.
+`get()` without an `id` reads one API page. Inside the same `with` block, use
+`get_all()` when the client should follow pagination for you, and give the
+query a projection and stable sort:
 
 ```python
-shipment = client.get(
-    "shipment",
+orders = client.get_all(
+    "salesOrder",
+    params={"properties": "id,orderNumber", "sort": "id"},
+    limit=2_000,
+)
+```
+
+Filters, projections, sorting, `additionalProperties`, and other query options
+are ordinary entries in `params`; their exact availability depends on the
+weclapp endpoint.
+
+The shorter `client` snippets below assume they run inside an active
+`with Weclapp(...) as client:` block.
+
+## Public API at a glance
+
+| Method | Purpose | Typical return value |
+| --- | --- | --- |
+| `get(endpoint, id=None, params=None)` | Read one record by id or one list page | `WeclappEntity` or `list[WeclappEntity]` |
+| `get_all(entity, params=None, limit=None, ...)` | Read all matching pages | `list[WeclappEntity]` |
+| `iter_all(entity, params=None, limit=None)` | Yield matching records page by page | iterator of `WeclappEntity` |
+| `post(endpoint, data, params=None)` | Create a record | API JSON |
+| `put(endpoint, id, data, params=None)` | Update a record | API JSON |
+| `delete(endpoint, id, params=None)` | Delete a record | usually `{}` |
+| `call_method(entity, action, ...)` | Call a GET or POST entity action | API JSON or binary result |
+| `upload(endpoint, data, ...)` | Upload bytes | API JSON |
+| `download(endpoint, id=None, ...)` | Download a file | `{"content": bytes, "content_type": str}` |
+| `request(method, endpoint, ...)` | Use a relative endpoint as an escape hatch | parsed API response |
+
+Response parsing is consistent across methods:
+
+| API response | Python value |
+| --- | --- |
+| JSON | decoded `dict`, `list`, or scalar; read result rows become `WeclappEntity` |
+| 204 or empty body | `{}` |
+| text media type | `{"content": str, "content_type": str}` |
+| other media type | `{"content": bytes, "content_type": str}` plus `filename` when supplied |
+
+All endpoint arguments are relative to the configured base URL. Absolute and
+cross-origin endpoint URLs are rejected so the authentication token cannot be
+sent to another host accidentally. Redirect responses are surfaced as errors
+instead of being followed automatically; this also prevents a `307` or `308`
+from replaying a write body.
+
+The client owns a pooled HTTP session. Prefer the context-manager form shown
+above, or call `client.close()` when a long-lived client is no longer needed.
+
+## Entities, custom attributes, and references
+
+Read methods return `WeclappEntity`, a `dict` subclass. Existing dict-style
+code keeps working, while attribute access makes common reads shorter. This
+article query deliberately projects the result fields, the additional price,
+and the referenced unit:
+
+```python
+article = client.get(
+    "article",
     id="12345",
     params={
-        "additionalProperties": "totalWeight",
-        "includeReferencedEntities": "customerId",
+        "properties": (
+            "id,version,articleNumber,name,unitId,customAttributes,"
+            "unit:id,unit:name"
+        ),
+        "additionalProperties": "currentSalesPrice",
+        "includeReferencedEntities": "unitId",
     },
 )
 
-# Built-in fields by attribute or by key
-shipment.id
-shipment["shipmentNumber"]
-
-# customAttributes are flattened by their internalName
-shipment.carrierTrackingId          # was customAttributes[*].stringValue
-shipment.fragile                    # was customAttributes[*].booleanValue
-
-# *Id fields lazily resolve against referencedEntities
-shipment.customer.name              # follows shipment.customerId
-shipment.customerId                 # raw id is still available
-
-# Per-row additionalProperties merge into the entity
-shipment.totalWeight                # {"value": 12.5}
+print(article["articleNumber"])
+print(article.currentSalesPrice)  # merged, read-only additionalProperty
+print(article.unitId)             # native reference id on the article
+print(article.unit.name)          # side-loaded referenced entity
 ```
 
-### Editing custom attributes
+The include parameter names the reference field (`unitId`). Referenced fields
+use colon projection (`unit:id,unit:name`), not `unit.id`. Include `unit:id`:
+the client needs that id to normalize the native reference list and resolve
+`article.unit`.
 
-Flattened customAttribute fields are writable. `entity.to_payload()` rebuilds
-the original `customAttributes` array so you can hand the result to `put`.
+`customAttributes` are exposed under the matching
+`attributeDefinition.attributeKey` (the configured internal key). This may
+trigger one cached definition lookup for the lifetime of the client.
+
+Flattened custom attributes are writable through attribute syntax. Passing a
+fetched entity to `put()` or an appropriate update-style POST `call_method()`
+converts it back to an API payload and removes synthetic additional-property
+fields:
 
 ```python
-shipment.carrierTrackingId = "TRACK-99"
-client.put("shipment", id=shipment.id, data=shipment.to_payload())
+setattr(article, "yourExistingAttributeKey", "new value")
+client.put("article", id=article.id, data=article, params={"dryRun": True})
 ```
 
-Built-in entity fields are read-only via attribute syntax — use a plain dict
-or `client.put` with explicit fields to update them.
+Built-in fields are intentionally read-only through attribute syntax. Update
+them with an explicit payload such as
+`client.put("article", id=article.id, data={"description": "Updated"})`.
+Create calls are different: pass an explicit dictionary to `post()` instead of
+reusing a fetched entity, because ids, versions, and other response metadata
+are not valid create fields.
 
-### Nested entities
+### Custom-attribute write boundaries
 
-Wrapping is recursive: dict-valued fields and dicts inside list fields are
-themselves `WeclappEntity` instances, sharing the parent's `referencedEntities`
-map. customAttribute flattening, `*Id` resolution, and `to_payload()` round-trip
-all work uniformly at every level.
+Flattened assignment updates an existing `customAttributes` entry that was
+present in the read response. It does not invent a new definition or append a
+missing entry. For a safe update roundtrip:
+
+1. request `id,version,customAttributes` plus any normal fields you need;
+2. only select a definition whose `readOnly` value is `false` and for which the
+   API credential has update permission;
+3. change the flattened `attributeKey`; and
+4. pass the entity to `put()`—preferably with `dryRun=True` first.
+
+For create payloads, or when adding an attribute not present on the fetched
+entity, provide the native `customAttributes` array yourself. Each entry needs
+its `attributeDefinitionId` and the value field dictated by
+`attributeType`:
+
+| Definition type | Native value field | Python/wire value |
+| --- | --- | --- |
+| `BOOLEAN` | `booleanValue` | `bool` |
+| `DATE` | `dateValue` | Unix timestamp in milliseconds (`int`) |
+| `DECIMAL`, `INTEGER` | `numberValue` | decimal string |
+| `ENTITY` | `entityId` | entity id string |
+| `REFERENCE` | `entityReferences` | list of `{"entityId": str, "entityName": str}` |
+| `LIST` | `selectedValueId` | selectable-value id string |
+| `MULTISELECT_LIST` | `selectedValues` | list of `{"id": str}` |
+| `STRING`, `LARGE_TEXT`, `URL` | `stringValue` | string |
+
+Do not send the flattened `attributeKey` as a top-level API property. Read-only
+definitions, system attributes, and computed `additionalProperties` are not
+writable. `version` is useful on updates for optimistic locking even though it
+is response metadata; omit `id`, `version`, `createdDate`, and
+`lastModifiedDate` when creating a new entity.
+
+Nested dictionaries and dictionaries inside lists are wrapped recursively.
+For example, a requested `orderItems.articleId` reference can be read as
+`order.orderItems[0].article.articleNumber`.
+
+Two edge cases are worth knowing:
+
+- A built-in field wins if its name collides with a custom attribute or an
+  additional property. The raw source data remains available through keys such
+  as `entity["customAttributes"]`.
+- Names that collide with `dict` methods—such as `items`, `keys`, or `get`—must
+  be accessed with brackets: `entity["items"]`.
+
+## Pagination
+
+Adaptive threaded pagination is the default for `get_all()`. It uses the
+queue/load feedback returned by weclapp to increase concurrency when the API
+is clear and reduce it before sustained queueing or `429` responses occur.
+For small or ordering-sensitive reads, opt into sequential pagination:
 
 ```python
-order = client.get(
-    "salesOrder",
-    id="12345",
-    params={"includeReferencedEntities": "customerId,orderItems.articleId"},
+articles = client.get_all(
+    "article",
+    params={"properties": "id,articleNumber", "sort": "id"},
+    limit=5_000,
+    threaded=False,
 )
-
-order.orderItems[0].article.articleNumber    # nested *Id auto-resolve
-order.orderItems[0].lineNote                 # nested customAttribute by internalName
-
-# Edit a nested custom attribute and PUT the whole order back.
-order.orderItems[0].lineNote = "fragile - rush"
-client.put("salesOrder", id=order.id, data=order.to_payload())
 ```
 
-### Collisions and edge cases
-
-- If a customAttribute `internalName` collides with a built-in field, the
-  built-in wins and a warning is logged. The raw value is still reachable via
-  `entity["customAttributes"]`.
-- Field names that collide with `dict` methods (`items`, `keys`, `values`,
-  `get`, `pop`, `update`, ...) are only reachable via bracket access — e.g.
-  `order["items"][0]` — because attribute access resolves to the bound method.
-  This is inherent to subclassing `dict` and applies at every nesting level.
-
-## Threaded Pagination
-
-The `get_all` method supports threaded pagination, which can significantly improve performance when fetching large datasets:
+For large result sets, the adaptive default can be used directly:
 
 ```python
-# Fetch all sales orders with threaded pagination
-sales_orders = client.get_all("salesOrder", threaded=True, max_workers=10)
+articles = client.get_all(
+    "article",
+    params={"properties": "id,articleNumber", "sort": "id"},
+    limit=20_000,
+)
 ```
 
-By default, `max_workers` is set to 10, but you can adjust this based on your needs.
+Threaded mode performs an additional count request, keeps API page order in the
+returned list, and raises if any page fails. `max_workers` is an optional
+adaptive ceiling, not a fixed worker count; the internal safety ceiling is 10
+when it is omitted. Always provide a stable sort such as `sort=id` when a
+result spans pages; otherwise concurrent changes or an unstable server order
+can move records across page boundaries.
 
-## Structured Response
+When projected rows contain `id`, the client detects duplicate IDs before
+merging or yielding a page. This catches a common symptom of a moving result
+set, but it cannot turn offset pagination into a database snapshot. `iter_all`
+keeps only the IDs seen for that check, not the complete result collection.
 
-When using `additionalProperties` or `includeReferencedEntities`, you can get a structured response by setting `return_weclapp_response=True`:
+When the full result should not be retained in memory, iterate sequentially:
+
+```python
+for article in client.iter_all(
+    "article",
+    params={
+        "pageSize": 500,
+        "properties": "id,articleNumber",
+        "sort": "id",
+    },
+    limit=10_000,
+):
+    process(article)
+```
+
+## Structured responses
+
+Most callers can use the merged entity view. When the original response
+sections are also needed, request a `WeclappResponse`:
 
 ```python
 response = client.get_all(
     "salesOrder",
+    limit=100,
     params={
-        "additionalProperties": "customer",
-        "includeReferencedEntities": "customerId"
+        "additionalProperties": "availability",
+        "includeReferencedEntities": "customerId",
+        "properties": (
+            "id,orderNumber,customerId,party:id,party:company,"
+            "party:firstName,party:lastName"
+        ),
+        "sort": "id",
     },
-    return_weclapp_response=True
+    return_weclapp_response=True,
 )
 
-# Access the main result
 orders = response.result
-
-# Access additional properties
-customer_data = response.additional_properties.get("customer")
-
-# Access referenced entities
-customer_entities = response.referenced_entities.get("customer")
+additional = response.additional_properties
+references = response.referenced_entities
+raw = response.raw_response
 ```
 
-## Error Handling
+`additionalProperties` are computed, read-only values. The client merges the
+value at each result index onto its matching entity for convenience, while
+`response.additional_properties` retains the index-aligned arrays. These
+synthetic fields are removed by `entity.to_payload()`.
 
-The library raises `WeclappAPIError` for API-related errors. The exception provides structured access to error details from the Weclapp API response.
+`response.referenced_entities` is the client-normalized shape
+`{entity_type: {id: entity}}`. The API-native shape remains available at
+`response.raw_referenced_entities` (and in
+`response.raw_response["referencedEntities"]`), where each entity type contains
+a list. This preserves valid colon projections that omit an `id` and therefore
+cannot enter the normalized map. Result rows retain their native `*Id` fields;
+attribute access such as `article.unit` is only a convenience resolver over
+those side-loaded lists.
 
-### Basic Usage
+## Writes and retry safety
+
+Writes are deliberately explicit through `post()`, `put()`, `delete()`, and
+POST `call_method()` calls.
+
+Where the endpoint supports it, a dry run can be passed as a normal query
+parameter:
 
 ```python
-from weclappy import Weclapp, WeclappAPIError
+client.post("salesOrder", payload, params={"dryRun": True})
+```
 
-client = Weclapp("https://acme.weclapp.com/webapp/api/v1", "your_api_key")
+Automatic HTTP-status retries apply only to `GET`, `HEAD`, and `OPTIONS`.
+`POST`, `PUT`, and `DELETE` do not receive automatic transport, status, or
+problem-response retries because a lost response can make a successful write
+look like a failure. For important business operations, reconcile the result
+with a stable business identifier before deciding whether to repeat a write.
+
+## Timeouts and retries
+
+The defaults are conservative and can be configured per client:
+
+| Setting | Default | Meaning |
+| --- | ---: | --- |
+| `timeout` | `120` seconds | Client-side request timeout |
+| `max_retries` | `3` | Shared safe-method retry budget for transport failures, 429, and transient 5xx responses |
+| `backoff_factor` | `0.3` | Exponential retry backoff; `Retry-After` is respected |
+| `problem_retries` | `1` | Extra retry for safe requests on `request_timeout` or `persistence` problems |
+| `wait_timeout_ms` | `30000` | `X-Weclapp-Wait-Timeout-Ms`; use `None` to omit |
+| `request_timeout_ms` | `120000` | `X-Weclapp-Request-Timeout-Ms`; use `None` to omit |
+| `slow_threshold_ms` | `2000` | Log successful slower requests at warning level |
+
+For example, pass `timeout=60`, `max_retries=2`, or `problem_retries=0` to
+`Weclapp(...)`. `client.request()` also accepts a one-off `timeout`. Setting
+both retry counts to zero disables automatic response retries.
+
+## Errors
+
+API and transport failures raise `WeclappAPIError` with the response attached
+when one is available:
+
+```python
+from weclappy import WeclappAPIError
 
 try:
-    result = client.get("article", id="nonexistent-id")
-except WeclappAPIError as e:
-    print(f"API Error: {e}")
-    print(f"Status Code: {e.status_code}")
-    print(f"Raw Response: {e.response_text}")
+    article = client.get(
+        "article",
+        id="12345",
+        params={"properties": "id,articleNumber"},
+    )
+except WeclappAPIError as exc:
+    print(exc.status_code, exc.detail)
+    if exc.is_not_found:
+        print("Article not found")
+    elif exc.is_validation_error:
+        print(exc.get_validation_messages())
 ```
 
-### Structured Error Fields
+Additional helpers include `is_request_timeout`, `is_persistence_error`,
+`is_retryable`, `retry_after`, `wait_ms`, `wait_reason`, `correlation_id`, and
+`get_all_messages()`. A retryable error describes the response, not whether
+repeating a particular business operation is safe.
 
-The `WeclappAPIError` exception parses JSON error responses and provides these attributes:
+## Files and custom actions
 
-| Attribute | Type | Description |
-|-----------|------|-------------|
-| `status_code` | `int` | HTTP status code (e.g., 404, 400, 500) |
-| `response_text` | `str` | Raw response body text |
-| `error` | `str` | Error message from the API |
-| `detail` | `str` | Detailed error description |
-| `title` | `str` | Error title |
-| `error_type` | `str` | Error type identifier |
-| `validation_errors` | `list` | List of validation error objects |
-| `messages` | `list` | List of additional messages with severity |
-| `url` | `str` | The request URL that caused the error |
-| `response` | `Response` | The raw requests.Response object |
-
-### Helper Properties
-
-Convenient boolean properties for common error types:
+Downloads return bytes together with their media type:
 
 ```python
-try:
-    client.put("article", id="123", data={"name": "Test"})
-except WeclappAPIError as e:
-    if e.is_not_found:
-        print("Entity does not exist")
-    elif e.is_optimistic_lock:
-        print("Version conflict - entity was modified by another process")
-    elif e.is_rate_limited:
-        print("Too many requests - implement backoff and retry")
-    elif e.is_validation_error:
-        print("Invalid data submitted")
-```
-
-### Helper Methods
-
-Extract error messages in a convenient format:
-
-```python
-try:
-    client.post("article", {"articleNumber": ""})
-except WeclappAPIError as e:
-    # Get just validation error messages
-    for msg in e.get_validation_messages():
-        print(f"Validation: {msg}")
-    
-    # Get all error messages (includes error, detail, validation, and messages)
-    for msg in e.get_all_messages():
-        print(f"Error: {msg}")
-```
-
-### Programmatic Error Handling Pattern
-
-```python
-def safe_get_entity(client, entity_type, entity_id):
-    """Example of programmatic error handling."""
-    try:
-        return client.get(entity_type, id=entity_id)
-    except WeclappAPIError as e:
-        if e.is_not_found:
-            return None  # Entity doesn't exist
-        elif e.is_rate_limited:
-            time.sleep(60)  # Wait and retry
-            return safe_get_entity(client, entity_type, entity_id)
-        elif e.is_optimistic_lock:
-            # Refresh entity and retry update
-            raise
-        elif e.is_validation_error:
-            # Log validation details for debugging
-            print(f"Validation failed: {e.get_validation_messages()}")
-            raise
-        else:
-            raise  # Re-raise unexpected errors
-```
-
-## Document & Image Uploads
-
-Upload binary files (documents, images) to weclapp entities using the `upload()` method. Content type is automatically inferred from the filename extension, with optional override.
-
-### Upload a Document
-
-```python
-# Read file content
-with open("invoice.pdf", "rb") as f:
-    data = f.read()
-
-# Upload document to a sales order
-doc = client.upload(
-    "document",
-    data=data,
-    action="upload",
-    filename="invoice.pdf",  # Content type inferred as application/pdf
-    params={
-        "entityName": "salesOrder",
-        "entityId": "12345",
-        "name": "Invoice.pdf",
-        "documentType": "SALES_INVOICE"
-    }
-)
-print(f"Document created: {doc['result']['id']}")
-```
-
-### Upload an Article Image
-
-```python
-with open("product.jpg", "rb") as f:
-    data = f.read()
-
-# Upload image to an article
-client.upload(
-    "article",
-    data=data,
-    id="art123",
-    action="uploadArticleImage",
-    filename="product.jpg",  # Content type inferred as image/jpeg
-    params={"name": "Main Product Image", "mainImage": True}
-)
-```
-
-### Override Content Type
-
-When the filename extension doesn't match the actual content, explicitly specify the content type:
-
-```python
-client.upload(
-    "document",
-    data=pdf_bytes,
-    action="upload",
-    content_type="application/pdf",  # Explicit override
-    filename="report.dat",            # Would otherwise be unknown
-    params={"entityName": "contract", "entityId": "456", "name": "Report"}
-)
-```
-
-A warning is logged if the explicit `content_type` differs from what would be inferred from the filename.
-
-## Binary Downloads
-
-Download documents, images, and other binary files using the `download()` method.
-
-### Download a Document
-
-```python
-# Download by document ID (defaults to 'download' action)
-result = client.download("document", id="doc123")
-
-if "content" in result:
-    with open("downloaded.pdf", "wb") as f:
-        f.write(result["content"])
-    print(f"Content-Type: {result['content_type']}")
-```
-
-### Download an Invoice PDF
-
-```python
-# Download latest sales invoice PDF
 result = client.download(
     "salesInvoice",
-    id="inv456",
-    action="downloadLatestSalesInvoicePdf"
+    id="12345",
+    action="downloadLatestSalesInvoicePdf",
 )
 
-with open("invoice.pdf", "wb") as f:
-    f.write(result["content"])
+with open("invoice.pdf", "wb") as output:
+    output.write(result["content"])
 ```
 
-### Download an Article Image
+Uploads accept bytes. The media type is inferred from `filename`, can be set
+with `content_type`, and otherwise falls back to
+`application/octet-stream`. A guarded upload example is available in
+[`examples/upload_document.py`](https://github.com/Wals-pro/weclappy/blob/main/examples/upload_document.py).
+
+For uncommon endpoints, use the public same-origin escape hatch instead of
+accessing the internal session:
 
 ```python
-result = client.download(
-    "article",
-    id="art789",
-    action="downloadArticleImage",
-    params={"articleImageId": "img123", "scaleWidth": 800}
+count = client.request(
+    "GET",
+    "article/count",
+    params={"filter": "active = true"},
 )
-
-with open("product.jpg", "wb") as f:
-    f.write(result["content"])
+print(count["result"])
 ```
 
-## Library Design Patterns
+## Logging
 
-Weclappy follows consistent design patterns to provide a predictable and intuitive API.
+The library uses Python's standard `logging` module and does not configure
+application logging for you. Enable it, for example, with
+`logging.basicConfig(level=logging.INFO)`.
 
-### Polymorphic Method Signatures
+INFO logs contain the method, endpoint path, status, and duration. Query
+parameters, request bodies, and the API key are omitted from these timing
+records. When weclapp supplies queue or correlation headers, a separate
+`[API_QUEUE]` record exposes them for diagnostics. Treat DEBUG output as
+potentially sensitive in production because filters and payload metadata may
+contain business data.
 
-All entity-related methods use named parameters for clarity and consistency:
+## Examples
 
-| Parameter | Description |
-|-----------|-------------|
-| `endpoint` | The entity type (e.g., `"article"`, `"salesOrder"`, `"document"`) |
-| `id` | Entity ID as a named parameter |
-| `action` | Action/method name for special operations |
-| `params` | Query parameters as a dict |
-| `data` | Request body (JSON for post/put, bytes for upload) |
+The scripts in
+[`examples/`](https://github.com/Wals-pro/weclappy/tree/main/examples) use only
+the standard library and `weclappy`. They read credentials from environment
+variables; they do not load `.env` files automatically.
 
-### URL Construction
+```bash
+cp examples/.env.example examples/.env
+# Edit examples/.env, then export it in your shell:
+set -a
+source examples/.env
+set +a
 
-URLs are constructed consistently based on the provided parameters:
-
-| Parameters | Resulting URL Pattern |
-|------------|----------------------|
-| `endpoint`, `id`, `action` | `{endpoint}/id/{id}/{action}` |
-| `endpoint`, `id` | `{endpoint}/id/{id}` |
-| `endpoint`, `action` | `{endpoint}/{action}` |
-| `endpoint` only | `{endpoint}` |
-
-### Method Summary
-
-```python
-# CRUD Operations
-client.get("article", id="123")                    # GET article/id/123
-client.get("article")                              # GET article (list)
-client.post("article", data={...}, params={"dryRun": True})  # POST article?dryRun=true
-client.put("article", id="123", data={...})        # PUT article/id/123
-client.delete("article", id="123")                 # DELETE article/id/123
-
-# Binary Operations
-client.upload("article", id="123", action="uploadArticleImage", data=bytes)
-client.download("document", id="456")              # GET document/id/456/download
-client.download("salesInvoice", id="789", action="downloadLatestSalesInvoicePdf")
-
-# Custom Methods
-client.call_method("salesOrder", "createSalesInvoice", entity_id="123", method="POST", data={...})
+python examples/count_entities.py
 ```
 
-### Return Types
+Examples that write require `WECLAPP_ENABLE_WRITES=1` and explain their effect
+before doing anything. Use those only with a tenant and record where the write
+is intended.
 
-| Response Type | Return Value |
-|---------------|--------------|
-| JSON | Parsed dict or list |
-| Binary (PDF, images, etc.) | `{"content": bytes, "content_type": str}` |
-| Structured | `WeclappResponse` (when `return_weclapp_response=True`) |
+For an optional dependency-free live contract check, run the guarded article
+probe. It exercises sequential and threaded pagination with `sort=id`,
+`currentSalesPrice`, and the `unitId` reference projection, then prints a JSON
+report without exposing credentials:
 
-## Related Projects
+```bash
+WECLAPP_RUN_LIVE_CONTRACT=1 \
+  python examples/live_contract.py
+```
 
-- [weclapp Toolbox](https://github.com/niclas-niclasen/weclapp-toolbox) — Chrome extension with developer tools for weclapp ERP (API views, record IDs, quick navigation)
+The probe uses `WECLAPP_BASE_URL` and `WECLAPP_API_KEY` from the environment.
+It performs reads only. It can also expose the same check as a local webhook:
+
+```bash
+export WECLAPP_LIVE_CONTRACT_BEARER_TOKEN='replace-with-a-high-entropy-token'
+
+WECLAPP_RUN_LIVE_CONTRACT=1 \
+  python examples/live_contract.py --serve
+
+curl http://127.0.0.1:8765/health
+curl -X POST \
+  -H "Authorization: Bearer $WECLAPP_LIVE_CONTRACT_BEARER_TOKEN" \
+  http://127.0.0.1:8765/run
+```
+
+The server binds to `127.0.0.1` by default. `GET /health` only checks the
+process and never needs weclapp credentials; `POST /run` returns the JSON
+contract report. `WECLAPP_LIVE_CONTRACT_BEARER_TOKEN` is always required for
+server mode, including on loopback, and every `/run` request must send it as
+`Authorization: Bearer ...`. Use a separate high-entropy token, never the
+weclapp API key. The server does not write access logs or include either token
+in its reports. The stdlib server does not terminate TLS; place it behind a
+TLS-enabled reverse proxy before exposing it across an untrusted network.
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Bug reports, focused improvements, documentation fixes, and tested pull
+requests are welcome. If you are unsure whether an idea fits the intentionally
+small scope, opening an issue first is a good way to discuss it without doing
+unnecessary work.
+
+See
+[CONTRIBUTING.md](https://github.com/Wals-pro/weclappy/blob/main/CONTRIBUTING.md)
+for setup and pull-request guidance. Please report security issues privately as
+described in
+[SECURITY.md](https://github.com/Wals-pro/weclappy/blob/main/SECURITY.md).
+
+## Design scope
+
+`weclappy` is a general-purpose API client with a thin response-shaping layer.
+To keep it easy to adopt, the project generally avoids generated entity models,
+module-specific workflows, automatic parallel writes, and additional runtime
+dependencies. Generic improvements that help integrations across weclapp
+modules are very welcome.
+
+## Related projects
+
+- [weclapp Toolbox](https://github.com/niclas-niclasen/weclapp-toolbox) — a
+  browser extension with developer tools for weclapp ERP
 
 ## License
 
-This project is licensed under the MIT License.
+MIT. See [LICENSE](https://github.com/Wals-pro/weclappy/blob/main/LICENSE).

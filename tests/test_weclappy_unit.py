@@ -35,8 +35,9 @@ class TestWeclappUnit(unittest.TestCase):
         mock_request.assert_called_once_with(
             "GET",
             "https://test.weclapp.com/webapp/api/v1/article",
-            params={"id-eq": "123", "pageSize": 1},
+            params={"id-eq": "123", "page": 1, "pageSize": 1},
             timeout=120,
+            allow_redirects=False,
         )
 
         self.assertEqual(result["id"], "123")
@@ -83,6 +84,7 @@ class TestWeclappUnit(unittest.TestCase):
             "https://test.weclapp.com/webapp/api/v1/article",
             params={},
             timeout=120,
+            allow_redirects=False,
         )
 
         # Verify the result
@@ -125,6 +127,7 @@ class TestWeclappUnit(unittest.TestCase):
             "https://test.weclapp.com/webapp/api/v1/article",
             params={"additionalProperties": "currentSalesPrice"},
             timeout=120,
+            allow_redirects=False,
         )
 
         # Verify the result
@@ -162,6 +165,7 @@ class TestWeclappUnit(unittest.TestCase):
             "https://test.weclapp.com/webapp/api/v1/article",
             params={"additionalProperties": "currentSalesPrice,averagePrice"},
             timeout=120,
+            allow_redirects=False,
         )
 
         # Verify the result
@@ -202,6 +206,7 @@ class TestWeclappUnit(unittest.TestCase):
             "https://test.weclapp.com/webapp/api/v1/article",
             params={"includeReferencedEntities": "unitId"},
             timeout=120,
+            allow_redirects=False,
         )
 
         # Verify the result
@@ -241,6 +246,7 @@ class TestWeclappUnit(unittest.TestCase):
             "https://test.weclapp.com/webapp/api/v1/article",
             params={"includeReferencedEntities": "unitId,articleCategoryId"},
             timeout=120,
+            allow_redirects=False,
         )
 
         # Verify the result
@@ -287,6 +293,7 @@ class TestWeclappUnit(unittest.TestCase):
                 "includeReferencedEntities": "unitId",
             },
             timeout=120,
+            allow_redirects=False,
         )
 
         # Verify the result
@@ -389,20 +396,6 @@ class TestWeclappUnit(unittest.TestCase):
         self.assertEqual(result.result[0]["unitId"], "456")
         self.assertEqual(result.referenced_entities["unit"]["456"]["name"], "Piece")
 
-    def test_get_all_threaded(self):
-        """Test get_all method with threaded fetching."""
-        # Skip this test for now as it's difficult to mock the ThreadPoolExecutor and as_completed
-        # The test would be too complex and brittle
-        import pytest
-        pytest.skip("Skipping test for threaded fetching as it's difficult to mock properly")
-
-    def test_get_all_threaded_with_properties(self):
-        """Test get_all method with threaded fetching and additional properties."""
-        # Skip this test for now as it's difficult to mock the ThreadPoolExecutor and as_completed
-        # The test would be too complex and brittle
-        import pytest
-        pytest.skip("Skipping test for threaded fetching as it's difficult to mock properly")
-
     @patch('weclappy.requests.Session.request')
     def test_post(self, mock_request):
         """Test post method."""
@@ -423,6 +416,7 @@ class TestWeclappUnit(unittest.TestCase):
             "https://test.weclapp.com/webapp/api/v1/article",
             json=data,
             timeout=120,
+            allow_redirects=False,
         )
 
         # Verify the result
@@ -450,6 +444,7 @@ class TestWeclappUnit(unittest.TestCase):
             json=data,
             params={"dryRun": True},
             timeout=120,
+            allow_redirects=False,
         )
 
         # Verify the result
@@ -477,6 +472,7 @@ class TestWeclappUnit(unittest.TestCase):
             json=data,
             params={"ignoreMissingProperties": True},
             timeout=120,
+            allow_redirects=False,
         )
 
         # Verify the result
@@ -501,6 +497,7 @@ class TestWeclappUnit(unittest.TestCase):
             "https://test.weclapp.com/webapp/api/v1/article/id/123",
             params={},
             timeout=120,
+            allow_redirects=False,
         )
 
         # Verify the result (empty dict for 204 response)
@@ -528,9 +525,8 @@ class TestWeclappUnit(unittest.TestCase):
         mock_request.assert_called_once_with(
             "GET",
             "https://test.weclapp.com/webapp/api/v1/salesInvoice/id/123/downloadLatestSalesInvoicePdf",
-            json=None,
-            params=None,
             timeout=120,
+            allow_redirects=False,
         )
 
         # Verify the result
@@ -638,18 +634,12 @@ class TestWeclappUnit(unittest.TestCase):
 
     @patch('weclappy.DEFAULT_PAGE_SIZE', 2)
     @patch('weclappy.Weclapp._send_request')
-    @patch('weclappy.requests.Session.request')
-    def test_get_all_merges_referenced_entities_threaded(self, mock_session_request, mock_send_request):
+    def test_get_all_merges_referenced_entities_threaded(self, mock_send_request):
         """Test that get_all properly merges referencedEntities across multiple pages in threaded mode."""
-        # Mock the count endpoint
-        count_response = MagicMock()
-        count_response.status_code = 200
-        count_response.json.return_value = {"result": 5}
-        mock_session_request.return_value = count_response
-
-        # Mock responses for 3 pages with different referenced entities
+        # Mock the count response followed by 3 page responses.
         # Note: In threaded mode, pages may be fetched in any order
         mock_send_request.side_effect = [
+            {"result": 5},
             # Page 1
             {
                 "result": [
@@ -1341,7 +1331,7 @@ class TestRequestTimingLogging(unittest.TestCase):
 
         mock_logger.warning.assert_any_call(
             "[API] Weclapp PUT /webapp/api/v1/salesOrder/id/12345 -> ERROR (5123ms) "
-            "ConnectionError: Connection refused"
+            "ConnectionError"
         )
 
     @patch('weclappy.time.monotonic')
@@ -1499,13 +1489,16 @@ class TestWeclappEntity(unittest.TestCase):
         self.assertNotIn("weightKg", payload)
 
         # customAttributes rebuilt with new values in the original slot/field
-        cas_by_internal = {
-            ca["internalName"]: ca for ca in payload["customAttributes"]
+        cas_by_definition = {
+            ca["attributeDefinitionId"]: ca for ca in payload["customAttributes"]
         }
-        self.assertEqual(cas_by_internal["carrierTrackingId"]["stringValue"], "TRACK-99")
-        self.assertEqual(cas_by_internal["fragile"]["booleanValue"], False)
+        self.assertEqual(cas_by_definition["def-1"]["stringValue"], "TRACK-99")
+        self.assertEqual(cas_by_definition["def-2"]["booleanValue"], False)
         # Untouched custom attribute keeps its value
-        self.assertEqual(cas_by_internal["weightKg"]["numberValue"], "12.5")
+        self.assertEqual(cas_by_definition["def-3"]["numberValue"], "12.5")
+        self.assertTrue(
+            all("internalName" not in item for item in payload["customAttributes"])
+        )
 
         # Other built-ins untouched
         self.assertEqual(payload["id"], "ship-1")
@@ -1540,12 +1533,13 @@ class TestWeclappEntity(unittest.TestCase):
         self.assertEqual(entity.shipmentNumber, "S-1")
         # No round-trip entry for this name.
         payload = entity.to_payload()
-        cas_by_internal = {
-            ca["internalName"]: ca for ca in payload["customAttributes"]
+        cas_by_definition = {
+            ca["attributeDefinitionId"]: ca for ca in payload["customAttributes"]
         }
         self.assertEqual(
-            cas_by_internal["shipmentNumber"]["stringValue"], "OVERWRITE-ATTEMPT"
+            cas_by_definition["def-1"]["stringValue"], "OVERWRITE-ATTEMPT"
         )
+        self.assertNotIn("internalName", cas_by_definition["def-1"])
 
     def test_additional_properties_merge_per_row(self):
         from weclappy import WeclappEntity
@@ -1759,8 +1753,11 @@ class TestWeclappEntityNested(unittest.TestCase):
         # Nested customAttributes rebuilt with edited value under the original typed-value field
         item_payload = payload["orderItems"][0]
         self.assertNotIn("lineNote", item_payload)
-        nested_cas = {ca["internalName"]: ca for ca in item_payload["customAttributes"]}
-        self.assertEqual(nested_cas["lineNote"]["stringValue"], "fragile - rush")
+        nested_cas = {
+            ca["attributeDefinitionId"]: ca
+            for ca in item_payload["customAttributes"]
+        }
+        self.assertEqual(nested_cas["ndef-1"]["stringValue"], "fragile - rush")
         # Untouched second item retained.
         self.assertEqual(payload["orderItems"][1]["articleId"], "art-2")
         # Payload should be plain dicts, not WeclappEntity, all the way down.

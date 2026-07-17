@@ -1,85 +1,65 @@
-# Publishing weclappy to PyPI
+# Releasing weclappy to PyPI
 
-This guide explains how to publish weclappy to the Python Package Index (PyPI).
+This is a maintainer guide. Publishing is automated from a GitHub Release with
+PyPI Trusted Publishing. The release workflow is the source of truth for its
+short-lived OpenID Connect credentials and build steps.
 
-## Automated Publishing (Recommended)
+## One-time publisher setup
 
-Releases are automatically published to PyPI via GitHub Actions when you create a new release on GitHub.
+Configure a Trusted Publisher for the `weclappy` project in PyPI:
 
-### Setup (One-time)
+- GitHub organization or user: `Wals-pro`
+- Repository: `weclappy`
+- Workflow: `publish.yml`
+- Environment: `pypi`
 
-1. Create a PyPI API token at [https://pypi.org/manage/account/token/](https://pypi.org/manage/account/token/)
-   - Scope: Project `weclappy`
-   
-2. Add the token to GitHub repository secrets:
-   - Go to: Repository → Settings → Secrets and variables → Actions
-   - Create secret: `PYPI_API_TOKEN`
-   - Paste your PyPI token
+Create the matching `pypi` environment in the GitHub repository. Protected
+environment reviewers are optional but useful for release approval. No PyPI
+token or repository secret is required.
 
-### Release Process
+## Prepare the release
 
-1. **Update version** in `pyproject.toml`:
-   ```toml
-   version = "0.3.1"  # Increment appropriately
-   ```
+1. Choose a version according to [Semantic Versioning](https://semver.org/).
+2. Update `version` in `pyproject.toml`.
+3. Move the relevant `CHANGELOG.md` entries from `Unreleased` to a versioned
+   heading with the release date.
+4. Verify the full release candidate locally:
 
-2. **Update CHANGELOG.md**:
-   - Move items from `## Unreleased` to a new version section
-   - Add the release date
-
-3. **Commit and push**:
    ```bash
-   git add -A
-   git commit -m "Release v0.3.1"
-   git push origin main
+   python -m pytest -m "not integration" -v
+   python -m pip install --upgrade build twine
+   python -m build
+   python -m twine check --strict dist/*
    ```
 
-4. **Create GitHub Release**:
-   - Go to: Repository → Releases → "Create a new release"
-   - Tag: `v0.3.1` (create new tag)
-   - Title: `v0.3.1`
-   - Description: Copy from CHANGELOG.md
-   - Click "Publish release"
+5. Inspect the wheel and source archive. Confirm that package metadata,
+   `README.md`, `LICENSE`, and the intended module are present.
+6. Commit the release changes, open or merge the release pull request, and make
+   sure CI is green on every supported Python version.
 
-5. **Verify**:
-   - Check Actions tab for workflow status
-   - Verify at [https://pypi.org/project/weclappy/](https://pypi.org/project/weclappy/)
+Use a clean checkout or remove stale build artifacts before the local build so
+an older distribution is not mistaken for the release candidate.
 
-## Manual Publishing (Fallback)
+## Publish through GitHub
 
-If you need to publish manually:
+1. Create a GitHub Release from the release commit.
+2. Create the tag `vX.Y.Z`; it must match the version in `pyproject.toml`.
+3. Use `vX.Y.Z` as the release title.
+4. Copy the matching changelog section into the release notes.
+5. Publish the release.
 
-```bash
-# Clean and build
-rm -rf build/ dist/ *.egg-info/
-python -m build
+The `Publish to PyPI` workflow first requires the release tag to equal `v` plus
+the package version and a dated `## [X.Y.Z] - YYYY-MM-DD` section to exist in
+`CHANGELOG.md`. It then runs every non-integration test, builds the
+distributions, validates their metadata, installs the wheel in a clean virtual
+environment, and publishes those exact artifacts through Trusted Publishing.
 
-# Check distribution
-twine check dist/*
+After publishing, verify:
 
-# Upload (will prompt for token)
-twine upload dist/*
-# Username: __token__
-# Password: <your PyPI API token>
-```
+- the GitHub workflow completed successfully;
+- `https://pypi.org/project/weclappy/X.Y.Z/` shows the expected metadata;
+- `python -m pip install weclappy==X.Y.Z` works in a fresh environment; and
+- importing `Weclapp`, `WeclappAPIError`, and `WeclappEntity` succeeds.
 
-## Version Guidelines
-
-Follow [Semantic Versioning](https://semver.org/):
-- **MAJOR** (1.0.0): Breaking API changes
-- **MINOR** (0.3.0): New features, backward compatible
-- **PATCH** (0.3.1): Bug fixes, backward compatible
-
-## Troubleshooting
-
-### Version Already Exists
-PyPI doesn't allow overwriting versions. Increment the version number and try again.
-
-### Authentication Failed
-Ensure your `PYPI_API_TOKEN` secret is set correctly in GitHub repository settings.
-
-### Build Failed
-Run tests locally first:
-```bash
-python -m pytest tests/test_weclappy_unit.py -v
-```
+PyPI versions are immutable. If the uploaded artifact is wrong, fix the issue
+and publish a new patch version rather than trying to replace it.

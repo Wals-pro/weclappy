@@ -1,4 +1,3 @@
-python-dotenv
 pytest
 setuptools
 wheel

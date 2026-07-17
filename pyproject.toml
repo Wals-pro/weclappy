@@ -1,13 +1,15 @@
 [build-system]
-requires = ["setuptools>=42"]
+requires = ["setuptools>=77.0.3"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "weclappy"
-version = "0.6.0"
+version = "0.7.0"
 description = "A Python client for the Weclapp API."
 readme = "README.md"
-license = { text = "MIT" }
+requires-python = ">=3.9"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
     { name = "Markus Wals", email = "markus@wals.pro" }
 ]
@@ -15,11 +17,32 @@ dependencies = [
     "requests>=2.26.0"
 ]
 classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Operating System :: OS Independent"
 ]
+
 [project.urls]
 "Homepage" = "https://wals.pro/"
 "Repository" = "https://github.com/Wals-pro/weclappy"
 "Documentation" = "https://github.com/Wals-pro/weclappy#readme"
+"Issues" = "https://github.com/Wals-pro/weclappy/issues"
+
+[tool.setuptools]
+py-modules = ["weclappy"]
+
+[tool.pytest.ini_options]
+addopts = "--strict-markers"
+testpaths = ["tests"]
+markers = [
+    "integration: requires access to a live weclapp tenant",
+    "write: creates, updates, or deletes persistent data and requires explicit opt-in",
+]

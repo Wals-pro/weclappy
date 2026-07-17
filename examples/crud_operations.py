@@ -1,72 +1,106 @@
-from weclappy import Weclapp, WeclappAPIError
-from dotenv import load_dotenv
-import logging
+"""Create, read, update, and remove a temporary party.
+
+This example performs real writes. It only runs after explicit opt-in and tries
+to remove the temporary record even if a later step fails.
+"""
+
 import os
-import time
+from typing import Optional
+from uuid import uuid4
 
-# Simple example: Basic CRUD operations
-# This demonstrates how to create, read, update, and delete entities
+from weclappy import Weclapp, WeclappAPIError
 
-# Load environment variables from .env file
-load_dotenv()
 
-# Initialize the logger
-logging.basicConfig(level=logging.INFO, format='%(message)s')
+def client_from_environment() -> Weclapp:
+    try:
+        return Weclapp(
+            os.environ["WECLAPP_BASE_URL"],
+            os.environ["WECLAPP_API_KEY"],
+        )
+    except KeyError as exc:
+        raise SystemExit(f"Missing environment variable: {exc.args[0]}") from exc
 
-# Initialize the Weclapp client
-weclapp = Weclapp(os.environ["WECLAPP_BASE_URL"], os.environ["WECLAPP_API_KEY"])
-party_id = None
-unique_suffix = str(int(time.time()))
-customer_number = f"WEC{unique_suffix}"
-initial_email = f"john.doe.{unique_suffix}@example.com"
-updated_email = f"john.doe.updated.{unique_suffix}@example.com"
 
-try:
-    # 1. CREATE: Create a new party
-    logging.info("Creating a new party...")
+def find_temporary_party(client: Weclapp, customer_number: str) -> Optional[str]:
+    matches = client.get(
+        "party",
+        params={
+            "customerNumber-eq": customer_number,
+            "pageSize": 2,
+            "properties": "id",
+            "sort": "id",
+        },
+    )
+    return matches[0].id if len(matches) == 1 else None
 
-    new_party = weclapp.post("party", {
-        "customerNumber": customer_number,
-        "partyType": "PERSON",
-        "firstName": "John",
-        "lastName": "Doe",
-        "email": initial_email
-    })
 
-    party_id = new_party.get('id')
-    logging.info(f"Created party with ID: {party_id}")
+def main() -> None:
+    if os.environ.get("WECLAPP_ENABLE_WRITES") != "1":
+        raise SystemExit(
+            "This example writes to weclapp. Set WECLAPP_ENABLE_WRITES=1 "
+            "only in a tenant where creating a temporary party is safe."
+        )
 
-    # 2. READ: Get the party by ID
-    logging.info("\nRetrieving the party...")
-
-    party = weclapp.get("party", id=party_id)
-    logging.info(f"Retrieved party: {party.get('firstName')} {party.get('lastName')}")
-
-    # 3. UPDATE: Update the party
-    logging.info("\nUpdating the party...")
-
-    updated_party = weclapp.put("party", party_id, {
-        "firstName": "John",
-        "lastName": "Doe Updated",
-        "email": updated_email
-    })
-
-    logging.info(f"Updated party email: {updated_party.get('email')}")
-
-    # 4. DELETE: Delete the party
-    logging.info("\nDeleting the party...")
-
-    weclapp.delete("party", party_id)
+    suffix = uuid4().hex[:10]
+    customer_number = f"WEC{suffix}"
     party_id = None
-    logging.info("Party deleted successfully")
+    create_attempted = False
 
-except WeclappAPIError as e:
-    logging.error(f"API Error: {e}")
-finally:
-    if party_id is not None:
+    with client_from_environment() as client:
         try:
-            logging.info("\nCleaning up the temporary party...")
-            weclapp.delete("party", party_id)
-            logging.info("Cleanup delete successful")
-        except WeclappAPIError as cleanup_error:
-            logging.error(f"Cleanup API Error: {cleanup_error}")
+            create_attempted = True
+            created = client.post(
+                "party",
+                {
+                    "customerNumber": customer_number,
+                    "partyType": "PERSON",
+                    "firstName": "Weclappy",
+                    "lastName": "Example",
+                    "email": f"weclappy-{suffix}@example.invalid",
+                },
+            )
+            party_id = created["id"]
+            print(f"Created temporary party {party_id}")
+
+            party = client.get(
+                "party",
+                id=party_id,
+                params={"properties": "id,firstName,lastName"},
+            )
+            print(f"Read party: {party.firstName} {party.lastName}")
+
+            updated = client.put(
+                "party",
+                id=party_id,
+                data={"lastName": "Example Updated"},
+            )
+            print(f"Updated party: {updated.get('lastName', 'ok')}")
+        except WeclappAPIError as exc:
+            raise SystemExit(f"weclapp API error: {exc}") from exc
+        finally:
+            if create_attempted and party_id is None:
+                try:
+                    party_id = find_temporary_party(client, customer_number)
+                except WeclappAPIError as lookup_exc:
+                    print(
+                        f"Could not reconcile temporary party {customer_number}: "
+                        f"{lookup_exc}"
+                    )
+            if party_id is not None:
+                try:
+                    client.delete("party", id=party_id)
+                    print(f"Removed temporary party {party_id}")
+                except WeclappAPIError as cleanup_exc:
+                    print(
+                        f"Cleanup failed for party {party_id}: {cleanup_exc}. "
+                        "Please remove it manually."
+                    )
+            elif create_attempted:
+                print(
+                    f"No unique temporary party found for {customer_number}. "
+                    "Check this customer number manually if creation was ambiguous."
+                )
+
+
+if __name__ == "__main__":
+    main()

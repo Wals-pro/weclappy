@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [0.7.0] - 2026-07-17
+
+### Added
+- A small public `request()` escape hatch for same-origin endpoints, plus
+  `close()` and context-manager support for pooled sessions.
+- Lazy `iter_all()` pagination for processing large result sets without keeping
+  the complete collection in memory.
+- Structured retry diagnostics (`retry_after`, queue timing, correlation IDs)
+  and consistent `WeclappAPIError` problem classification.
+- Native `raw_referenced_entities` access alongside the existing ID-indexed
+  reference view, plus an `additional_properties` namespace on result rows.
+- An opt-in live API contract probe, available directly or as an authenticated
+  stdlib webhook, that verifies paginated result ordering,
+  additional-property alignment, and referenced-entity projections.
+- Contributor, security, release, OpenAPI provenance, and testing guidance;
+  refreshed examples now use only the public API.
+
+### Changed
+- `get_all()` now defaults to adaptive threaded pagination. The client uses
+  weclapp queue/load feedback, bounded page submission, shared 429 cooldowns,
+  and an optional `max_workers` ceiling instead of a fixed worker count.
+- Pagination now preserves page order, aligns `additionalProperties`, validates
+  threaded page counts, and rejects duplicate projected IDs between pages.
+- Custom attributes use the API's `attributeDefinition.attributeKey`, retain
+  all eleven typed value shapes during round trips, emit schema-exact v2
+  payloads, and enforce definition-level `readOnly` locally.
+- Custom-attribute definitions are cached from a stable, minimal
+  `id,attributeKey,attributeType,readOnly` projection.
+- JSON payloads normalize nested `WeclappEntity` values automatically.
+- Safe-method retries now run only in the central client loop and respect
+  `Retry-After`; one shared retry budget covers status and transport failures,
+  and neither the urllib3 adapter nor redirects can replay writes.
+- Runtime inspection can resolve the public `Literal` overload annotations.
+- URL construction is same-origin constrained, and redirect responses are
+  surfaced without being followed automatically.
+- Error and API timing logs no longer include response-body details or query
+  parameters by default.
+
+### Security
+- Added explicit MIT licensing, private vulnerability-reporting guidance,
+  write-test opt-in guards, and PyPI Trusted Publishing/OIDC release gates.
+- The live-contract webhook always requires a separate bearer token for
+  `POST /run`, including when it is bound only to loopback.
+
 ## [0.6.0] - 2026-04-25
 
 ### Added
@@ -176,4 +220,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial project setup
 - Basic project structure
-- Documentation framework 
+- Documentation framework

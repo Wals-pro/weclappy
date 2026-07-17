@@ -1,40 +1,35 @@
-from weclappy import Weclapp, WeclappAPIError
-from dotenv import load_dotenv
-import logging
+"""Fetch a larger result set with adaptive parallel page requests."""
+
 import os
 
-# Simple example: Fetch sales orders using threaded mode
-# This demonstrates how to use threaded fetching to improve performance
+from weclappy import Weclapp, WeclappAPIError
 
-# Load environment variables from .env file
-load_dotenv()
 
-# Initialize the logger
-logging.basicConfig(level=logging.INFO, format='%(message)s')
+def client_from_environment() -> Weclapp:
+    try:
+        return Weclapp(
+            os.environ["WECLAPP_BASE_URL"],
+            os.environ["WECLAPP_API_KEY"],
+        )
+    except KeyError as exc:
+        raise SystemExit(f"Missing environment variable: {exc.args[0]}") from exc
 
-# Initialize the Weclapp client
-weclapp = Weclapp(os.environ["WECLAPP_BASE_URL"], os.environ["WECLAPP_API_KEY"])
 
-try:
-    # Fetch sales orders with threaded mode
-    logging.info("Fetching sales orders using threaded mode...")
+def main() -> None:
+    try:
+        with client_from_environment() as client:
+            orders = client.get_all(
+                "salesOrder",
+                params={"properties": "id,orderNumber", "sort": "id"},
+                limit=5_000,
+            )
+    except WeclappAPIError as exc:
+        raise SystemExit(f"weclapp API error: {exc}") from exc
 
-    sales_orders = weclapp.get_all(
-        "salesOrder",
-        limit=10000,  # Fetch up to 10 records
-        threaded=True,  # Enable threaded fetching
-        max_workers=10  # Use 10 threads for parallel fetching
-    )
+    print(f"Fetched {len(orders)} sales orders")
+    for order in orders[:5]:
+        print(f"- {order.get('orderNumber', order.id)}")
 
-    logging.info(f"Successfully fetched {len(sales_orders)} sales orders")
 
-    # Display the first 5 sales orders
-    if sales_orders:
-        logging.info("\nFirst 5 sales orders:")
-        for i, order in enumerate(sales_orders[:5], 1):
-            logging.info(f"  {i}. Order #{order.get('orderNumber', 'N/A')}")
-    else:
-        logging.info("No sales orders found")
-
-except WeclappAPIError as e:
-    logging.error(f"Failed to fetch sales orders: {e}")
+if __name__ == "__main__":
+    main()
