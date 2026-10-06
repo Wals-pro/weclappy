@@ -319,6 +319,23 @@ def safe_get_entity(client, entity_type, entity_id):
             raise  # Re-raise unexpected errors
 ```
 
+### Automatic Retries
+
+The client retries transient failures with exponential backoff (up to 3 retries):
+
+| Method | `429` | `500`/`502`/`503`/`504` | Read timeout | Connect error |
+|---|---|---|---|---|
+| `GET`, `HEAD`, `OPTIONS` | retried | retried | retried | retried |
+| `POST`, `PUT`, `DELETE` | retried | **not retried** | **not retried** | retried |
+
+`429` means weclapp rejected the request without processing it, so repeating it is safe; `Retry-After` is honoured. A 5xx or a read timeout on a write does not prove that the write was rolled back: retrying `createSalesInvoice` after a committed write would create a second invoice. These errors are raised as `WeclappAPIError` instead, and the caller decides whether to re-read the record and retry.
+
+If every write your code issues is safe to repeat, you can restore automatic retries for writes:
+
+```python
+client = Weclapp(base_url, api_key, retry_writes_on_server_error=True)
+```
+
 ## Document & Image Uploads
 
 Upload binary files (documents, images) to weclapp entities using the `upload()` method. Content type is automatically inferred from the filename extension, with optional override.

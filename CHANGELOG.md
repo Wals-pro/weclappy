@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed
+- Writes are no longer retried automatically after a 5xx or a read timeout. Previously `POST`, `PUT` and `DELETE` were retried up to 3 times on `500`/`502`/`503`/`504` and on read timeouts, so a write that weclapp had already committed before failing (e.g. `call_method("salesOrder", "createSalesInvoice", ..., method="POST")`) could be executed twice and create duplicate documents. Writes are now retried only on `429`, which weclapp returns for requests it did not process. `GET`/`HEAD`/`OPTIONS` keep retrying on `429` and 5xx.
+
+### Added
+- `Weclapp(..., retry_writes_on_server_error=False)`: opt-in to restore the previous retry behaviour for writes.
+- `WeclappRetry`, the urllib3 `Retry` subclass that implements the per-method policy.
+
 ## [0.6.0] - 2026-04-25
 
 ### Added

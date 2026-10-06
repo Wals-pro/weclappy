@@ -78,6 +78,37 @@ DEFAULT_MAX_WORKERS = 10
 DEFAULT_REQUEST_TIMEOUT = 120  # seconds; weclapp may queue requests up to ~30s before 429
 DEFAULT_BACKOFF_FACTOR = 0.3  # exponential backoff between retries (seconds)
 SLOW_REQUEST_THRESHOLD_MS = 2000
+DEFAULT_RETRY_TOTAL = 3
+RETRY_STATUS_FORCELIST = (429, 500, 502, 503, 504)
+# Methods without side effects: retried on 5xx, 429 and read errors.
+IDEMPOTENT_RETRY_METHODS = frozenset({"HEAD", "GET", "OPTIONS"})
+# Methods that write: by default retried only on these statuses, i.e. when
+# weclapp rejected the request before processing it.
+WRITE_RETRY_METHODS = frozenset({"POST", "PUT", "DELETE", "PATCH"})
+WRITE_RETRY_STATUSES = frozenset({429})
+
+
+class WeclappRetry(Retry):
+    """urllib3 Retry that never repeats a write whose outcome is unknown.
+
+    A 5xx or a read timeout on POST/PUT/DELETE does not prove that weclapp
+    rolled the write back. Repeating it blindly turns a committed
+    ``createSalesInvoice`` into a second invoice. Writes are therefore only
+    left out of ``allowed_methods`` and retried here on ``429``, which weclapp
+    returns for requests it rejected from its queue without processing them.
+    Connection errors before the request was sent are retried for every
+    method by urllib3 itself.
+    """
+
+    def is_retry(self, method: str, status_code: int, has_retry_after: bool = False) -> bool:
+        if super().is_retry(method, status_code, has_retry_after):
+            return True
+        return (
+            method is not None
+            and method.upper() in WRITE_RETRY_METHODS
+            and status_code in WRITE_RETRY_STATUSES
+            and status_code in (self.status_forcelist or ())
+        )
 
 class WeclappAPIError(Exception):
     """Custom exception for Weclapp API errors.
@@ -598,7 +629,8 @@ class Weclapp:
         api_key: str,
         pool_connections: int = 100,
         pool_maxsize: int = 100,
-        slow_threshold_ms: int = SLOW_REQUEST_THRESHOLD_MS
+        slow_threshold_ms: int = SLOW_REQUEST_THRESHOLD_MS,
+        retry_writes_on_server_error: bool = False
     ) -> None:
         """
         Initialize the Weclapp client.
@@ -607,6 +639,10 @@ class Weclapp:
         :param api_key: Authentication token / API key for the Weclapp instance.
         :param pool_connections: Total number of connection pools to maintain (default=100).
         :param pool_maxsize: Maximum number of connections per pool (default=100).
+        :param retry_writes_on_server_error: Also retry POST/PUT/DELETE on 5xx and
+            read timeouts (default=False). Only enable this when every write the
+            client issues is safe to repeat, because a 5xx can follow a committed
+            write and the retry then creates a duplicate.
         """
         self.base_url = base_url.rstrip('/') + '/'
         self.slow_threshold_ms = slow_threshold_ms
@@ -621,12 +657,16 @@ class Weclapp:
             "AuthenticationToken": api_key
         })
 
-        # Configure HTTP retry strategy (5xx and 429 with exponential backoff)
-        retry_strategy = Retry(
-            total=3,
+        # Configure HTTP retry strategy with exponential backoff: reads are
+        # retried on 5xx/429/read errors, writes only on 429 (see WeclappRetry).
+        allowed_methods = IDEMPOTENT_RETRY_METHODS
+        if retry_writes_on_server_error:
+            allowed_methods = allowed_methods | WRITE_RETRY_METHODS
+        retry_strategy = WeclappRetry(
+            total=DEFAULT_RETRY_TOTAL,
             backoff_factor=DEFAULT_BACKOFF_FACTOR,
-            status_forcelist=[500, 502, 503, 504, 429],
-            allowed_methods=["HEAD", "GET", "OPTIONS", "POST", "PUT", "DELETE"],
+            status_forcelist=RETRY_STATUS_FORCELIST,
+            allowed_methods=allowed_methods,
         )
 
         # Create an adapter with bigger pool size
