@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [1.0.1] - 2026-10-08
+
+### Changed
+- README leads with a positioning line, a five-line example and a Highlights
+  list so the client's capabilities are visible on the first screen of GitHub
+  and PyPI. Documentation only; no code changes.
+
 ## [1.0.0] - 2026-10-08
 
 First stable release. The public API is now frozen under Semantic Versioning;
