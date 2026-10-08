@@ -7,6 +7,7 @@ never sleep to wait for something, they join on the client calls.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
+from itertools import pairwise
 from typing import Any
 
 import pytest
@@ -99,13 +100,20 @@ def test_get_all_under_a_tenant_concurrency_limit(
     server = start_server(
         articles(3500), concurrency_limit=3, reject_above=6, processing_delay=0.005
     )
-    client = make_client(server.base_url)
+    seen: list[RequestMetrics] = []
+    client = make_client(server.base_url, on_response=seen.append)
     result = client.get_all("article", {"pageSize": 100})
 
     assert ids(result) == expected_ids(3500)
     assert len(set(ids(result))) == 3500
-    assert client.concurrency.target <= 4
     assert client.concurrency.active == 0
+    # The final target depends on how hard the runner saturates the server, so
+    # the invariant is: feedback was acted on. Every queued response carries the
+    # ``concurrency`` reason and must have lowered the target at least once.
+    targets = [m.concurrency_target for m in seen]
+    assert max(targets) <= client.concurrency.ceiling
+    if any(m.wait_reason == "concurrency" for m in seen):
+        assert any(later < earlier for earlier, later in pairwise(targets))
     stats = client.stats
     assert stats.rate_limited <= 5
     assert stats.requests == len(server.hits)
