@@ -10,10 +10,21 @@ updates:
     commit-message:
       prefix: ci
 
+  # weclappy is a library: its runtime floors (requests, urllib3) stay as wide
+  # as the code supports and are raised deliberately in a release, never by a
+  # bot. Dependabot only keeps the dev tooling current, grouped into one PR.
   - package-ecosystem: pip
     directory: /
     schedule:
       interval: weekly
     commit-message:
       prefix: deps
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 2
+    ignore:
+      - dependency-name: requests
+      - dependency-name: urllib3
+      - dependency-name: setuptools
+    groups:
+      dev-tooling:
+        patterns: ["*"]
+        dependency-type: development
