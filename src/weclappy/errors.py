@@ -330,8 +330,12 @@ class WeclappPaginationError(WeclappAPIError):
     """
 
 
-class WeclappConcurrencyTimeoutError(WeclappError):
-    """No read permit became available before the client timeout elapsed."""
+class WeclappConcurrencyTimeoutError(WeclappAPIError):
+    """No read permit became available before the client timeout elapsed.
+
+    Derives from :class:`WeclappAPIError` (with ``status_code`` ``None``) so
+    that callers handling API failures generically also see it.
+    """
 
 
 def _redact_credentials(response: requests.Response | None) -> requests.Response | None:

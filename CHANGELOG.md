@@ -22,6 +22,10 @@ see the [versioning and support policy](README.md#versioning-and-support-policy)
 [Migration from 0.x](README.md#migration-from-0x) before upgrading, and pin
 `weclappy>=1.0,<2`.
 
+### Deprecated
+- The `id=` keyword on `get`, `put`, `delete`, `upload` and `download` still
+  works but emits a `DeprecationWarning`; use `entity_id=`. Removed in 2.0.
+
 ### Security
 - **Writes are never retried after an ambiguous outcome.** 0.6.0 mounted a
   urllib3 `Retry` that repeated `POST`, `PUT` and `DELETE` on 500, 502, 503, 504

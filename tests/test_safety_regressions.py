@@ -636,8 +636,8 @@ def test_get_all_rejects_invalid_limit_and_worker_count_before_network_io(
         api.get_all("article", limit=-1)
     with pytest.raises(ValueError, match="max_workers"):
         api.get_all("article", limit=1, threaded=True, max_workers=0)
-    with pytest.raises(ValueError, match="exceeds max_concurrency"):
-        api.get_all("article", max_workers=5)
+    with pytest.raises(ValueError, match="max_workers"):
+        api.get_all("article", max_workers=True)
     with pytest.raises(ValueError, match="threaded"):
         api.get_all("article", threaded="always")
     with pytest.raises(ValueError, match="limit"):

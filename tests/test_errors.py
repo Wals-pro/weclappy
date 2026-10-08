@@ -47,8 +47,7 @@ def test_api_subclasses_derive_from_api_error(cls: type[Exception]) -> None:
 def test_root_hierarchy() -> None:
     assert issubclass(WeclappAPIError, WeclappError)
     assert issubclass(WeclappError, Exception)
-    assert issubclass(WeclappConcurrencyTimeoutError, WeclappError)
-    assert not issubclass(WeclappConcurrencyTimeoutError, WeclappAPIError)
+    assert issubclass(WeclappConcurrencyTimeoutError, WeclappAPIError)
 
 
 def test_transient_status_codes() -> None:

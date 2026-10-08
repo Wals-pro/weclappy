@@ -253,11 +253,12 @@ def test_acquire_times_out_during_cooldown() -> None:
         controller.acquire(timeout=1)
 
 
-def test_concurrency_timeout_error_is_a_weclapp_error_not_api_error() -> None:
+def test_concurrency_timeout_error_is_an_api_error_without_status() -> None:
     from weclappy import WeclappAPIError, WeclappError
 
     assert issubclass(WeclappConcurrencyTimeoutError, WeclappError)
-    assert not issubclass(WeclappConcurrencyTimeoutError, WeclappAPIError)
+    assert issubclass(WeclappConcurrencyTimeoutError, WeclappAPIError)
+    assert WeclappConcurrencyTimeoutError("slot").status_code is None
 
 
 # ------------------------------------------------------------------- permits

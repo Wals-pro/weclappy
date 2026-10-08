@@ -716,7 +716,12 @@ All arguments after `api_key` are keyword-only.
   `upload` and `download`, and `endpoint` → `entity` as the first parameter of
   every method. Positions are unchanged, so positional calls keep working:
   `client.get("article", id="1")` becomes `client.get("article", "1")` or
-  `client.get("article", entity_id="1")`.
+  `client.get("article", entity_id="1")`. The `id=` keyword still works in
+  1.x but emits a `DeprecationWarning` and is removed in 2.0.
+- **Extra requests you may notice.** A large `get_all` issues one
+  `GET {entity}/count` before fetching pages concurrently; the first read
+  that returns `customAttributes` loads `customAttributeDefinition` once per
+  client. Test doubles must answer both.
 - **`get_all` defaults to `threaded="auto"`** (0.6.x: sequential). Small reads
   cost one request; large reads count and fetch pages in parallel. Pass
   `threaded=False` to keep strictly sequential reads.
@@ -738,8 +743,13 @@ All arguments after `api_key` are keyword-only.
 - **Default sort.** `get_all`, `iter_all` and `strategy="ids"` add `sort=id`
   when neither `sort` nor `orderBy` is given; pass `{"sort": None}` for
   weclapp's default order. `get()` without an id is unchanged.
-- **`max_workers` must not exceed `max_concurrency`** (default 10); raise the
-  ceiling with `Weclapp(max_concurrency=20)` instead of silently getting 10.
+- **`max_workers` is capped at `max_concurrency`** (default 10). A larger
+  value is clamped with a warning; raise `max_concurrency` on the client to
+  allow more concurrent reads.
+- **The HTTP adapter never retries** (`max_retries=0`); every retry decision
+  is made by the client. Code that read or copied retry settings from
+  `session.get_adapter(...)` must use `retry_policy=` instead, and a custom
+  session goes in through `session=`.
 - **New default headers.** Every request sends
   `X-Weclapp-Wait-Timeout-Ms: 30000`, `X-Weclapp-Request-Timeout-Ms: 110000`
   (0.7.0 branch: 120000, equal to the client timeout) and

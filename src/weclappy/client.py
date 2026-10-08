@@ -8,6 +8,7 @@ import math
 import re
 import threading
 import time
+import warnings
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from contextlib import nullcontext
@@ -778,7 +779,19 @@ class Weclapp:
         params: Mapping[str, Any] | None = None,
         *,
         return_weclapp_response: Literal[True],
+        id: str | None = None,
     ) -> WeclappResponse: ...
+
+    @overload
+    def get(
+        self,
+        entity: str,
+        entity_id: None = None,
+        params: Mapping[str, Any] | None = None,
+        *,
+        return_weclapp_response: Literal[False] = False,
+        id: str,
+    ) -> WeclappEntity: ...
 
     @overload
     def get(
@@ -807,6 +820,7 @@ class Weclapp:
         params: Mapping[str, Any] | None = None,
         *,
         return_weclapp_response: bool = False,
+        id: str | None = None,
     ) -> list[WeclappEntity] | WeclappEntity | WeclappResponse:
         """Read one page of ``entity``, or a single record when ``entity_id`` is given.
 
@@ -815,6 +829,7 @@ class Weclapp:
         ``includeReferencedEntities``. An empty result raises
         :class:`~weclappy.errors.WeclappNotFoundError` with a synthetic 404.
         """
+        entity_id = _legacy_id(entity_id, id, "get")
         query = dict(params) if params else {}
         path = self._path(entity)
         if entity_id is None:
@@ -1373,17 +1388,34 @@ class Weclapp:
     def put(
         self,
         entity: str,
-        entity_id: str,
-        data: JsonDict | WeclappEntity,
+        entity_id: str | None = None,
+        data: JsonDict | WeclappEntity | None = None,
         params: Mapping[str, Any] | None = None,
+        *,
+        id: str | None = None,
     ) -> Any:
         """``PUT {entity}/id/{id}`` with ``ignoreMissingProperties=true`` unless overridden."""
+        entity_id = _legacy_id(entity_id, id, "put")
+        if entity_id is None:
+            raise TypeError("put() requires entity_id")
+        if data is None:
+            raise TypeError("put() requires data")
         query = dict(params) if params else {}
         query.setdefault("ignoreMissingProperties", True)
         return self.request("PUT", self._path(entity, entity_id), json=data, params=query)
 
-    def delete(self, entity: str, entity_id: str, params: Mapping[str, Any] | None = None) -> Any:
+    def delete(
+        self,
+        entity: str,
+        entity_id: str | None = None,
+        params: Mapping[str, Any] | None = None,
+        *,
+        id: str | None = None,
+    ) -> Any:
         """``DELETE {entity}/id/{id}``; returns ``{}`` on 204."""
+        entity_id = _legacy_id(entity_id, id, "delete")
+        if entity_id is None:
+            raise TypeError("delete() requires entity_id")
         return self.request("DELETE", self._path(entity, entity_id), params=params)
 
     def call_method(
@@ -1412,12 +1444,14 @@ class Weclapp:
         *,
         content_type: str | None = None,
         filename: str | None = None,
+        id: str | None = None,
     ) -> Any:
         """Upload binary data to ``{entity}[/id/{id}][/{action}]``.
 
         The content type is ``content_type`` if given, else inferred from
         ``filename``, else ``application/octet-stream``.
         """
+        entity_id = _legacy_id(entity_id, id, "upload")
         inferred = infer_content_type(filename)
         effective = content_type or inferred or "application/octet-stream"
         if content_type and inferred and content_type != inferred:
@@ -1438,8 +1472,11 @@ class Weclapp:
         entity_id: str | None = None,
         action: str | None = None,
         params: Mapping[str, Any] | None = None,
+        *,
+        id: str | None = None,
     ) -> Any:
         """Download from ``{entity}[/id/{id}][/{action}]``; defaults to ``/download``."""
+        entity_id = _legacy_id(entity_id, id, "download")
         if entity_id is not None and action is None:
             action = "download"
         return self.request("GET", self._path(entity, entity_id, action), params=params)
@@ -1452,7 +1489,14 @@ class Weclapp:
         if isinstance(max_workers, bool) or not isinstance(max_workers, int) or max_workers < 1:
             raise ValueError("max_workers must be a positive integer")
         if max_workers > ceiling:
-            raise ValueError(f"max_workers={max_workers} exceeds max_concurrency={ceiling}")
+            logger.warning(
+                "max_workers=%d exceeds max_concurrency=%d; using %d "
+                "(raise max_concurrency on the client to allow more)",
+                max_workers,
+                ceiling,
+                ceiling,
+            )
+            return ceiling
         return max_workers
 
     def _run_window(self, jobs: Mapping[int, Callable[[], Any]], workers: int) -> dict[int, Any]:
@@ -1505,6 +1549,21 @@ class Weclapp:
 
 
 # ---------------------------------------------------------------- helpers
+
+
+def _legacy_id(entity_id: str | None, legacy: str | None, method: str) -> str | None:
+    """Resolve the deprecated ``id=`` keyword (0.x) onto ``entity_id``."""
+    if legacy is None:
+        return entity_id
+    if entity_id is not None:
+        raise TypeError(f"{method}() got both entity_id and the deprecated id keyword")
+    warnings.warn(
+        f"Weclapp.{method}(id=...) is deprecated and will be removed in weclappy 2.0; "
+        "use entity_id=",
+        DeprecationWarning,
+        stacklevel=3,
+    )
+    return legacy
 
 
 def _segment(value: str, name: str) -> str:

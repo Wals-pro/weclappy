@@ -222,9 +222,9 @@ def test_threaded_false_reads_one_empty_page_on_exact_multiples() -> None:
 @pytest.mark.parametrize(
     "kwargs",
     [
-        {"max_workers": 4},
         {"max_workers": 0},
         {"max_workers": True},
+        {"max_workers": -1},
         {"limit": -1},
         {"max_records": -1},
         {"limit": 1.5},
@@ -372,7 +372,7 @@ def test_get_by_ids_empty_and_validation() -> None:
     with pytest.raises(ValueError, match="chunk_size"):
         client.get_by_ids("article", ["1"], chunk_size=0)
     with pytest.raises(ValueError, match="max_workers"):
-        client.get_by_ids("article", ["1"], max_workers=3)
+        client.get_by_ids("article", ["1"], max_workers=0)
     assert tenant.hits == []
 
 
