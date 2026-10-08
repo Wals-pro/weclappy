@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed
+- README links the release blog post (wals.pro) below the independence note.
+
 ## [1.0.1] - 2026-10-08
 
 ### Changed
