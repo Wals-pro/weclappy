@@ -59,6 +59,9 @@ print(orders[0].customer.name)  # customerId resolves to the referenced party
 weclappy is independent and community-maintained; it is not affiliated with
 weclapp.
 
+The release post explains the design with worked examples (German):
+[weclappy 1.0: Der Python-Client, der die weclapp-API wirklich versteht](https://wals.pro/blogs/news/weclappy-1-0-python-client-weclapp-api).
+
 - [Install](#install)
 - [Quick start](#quick-start)
 - [How weclappy talks to weclapp](#how-weclappy-talks-to-weclapp)
