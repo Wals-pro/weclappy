@@ -1,40 +1,44 @@
-from weclappy import Weclapp, WeclappAPIError
-from dotenv import load_dotenv
-import logging
+"""Read a larger result set with threaded="auto" and adaptive concurrency (read-only)."""
+
 import os
 
-# Simple example: Fetch sales orders using threaded mode
-# This demonstrates how to use threaded fetching to improve performance
+from weclappy import RequestMetrics, Weclapp, WeclappAPIError, WeclappPaginationError
 
-# Load environment variables from .env file
-load_dotenv()
 
-# Initialize the logger
-logging.basicConfig(level=logging.INFO, format='%(message)s')
+def print_queue_waits(metrics: RequestMetrics) -> None:
+    if metrics.wait_ms:
+        print(
+            f"  queued {metrics.wait_ms:.0f} ms ({metrics.wait_reason}) on {metrics.path}, "
+            f"concurrency target now {metrics.concurrency_target}"
+        )
 
-# Initialize the Weclapp client
-weclapp = Weclapp(os.environ["WECLAPP_BASE_URL"], os.environ["WECLAPP_API_KEY"])
 
-try:
-    # Fetch sales orders with threaded mode
-    logging.info("Fetching sales orders using threaded mode...")
+def main() -> None:
+    try:
+        tenant, api_key = os.environ["WECLAPP_TENANT"], os.environ["WECLAPP_API_KEY"]
+    except KeyError as exc:
+        raise SystemExit(f"Missing environment variable: {exc.args[0]}") from exc
 
-    sales_orders = weclapp.get_all(
-        "salesOrder",
-        limit=10000,  # Fetch up to 10 records
-        threaded=True,  # Enable threaded fetching
-        max_workers=10  # Use 10 threads for parallel fetching
-    )
+    try:
+        with Weclapp.for_tenant(tenant, api_key, on_response=print_queue_waits) as client:
+            # Page 1 is read first; only a full page triggers /count and parallel pages.
+            # sort=id is added automatically because params has no sort/orderBy.
+            orders = client.get_all(
+                "salesOrder",
+                {"properties": "id,orderNumber,status"},
+                limit=5_000,
+                max_records=100_000,
+            )
+            stats = client.stats
+    except WeclappPaginationError as exc:
+        raise SystemExit(f"Inconsistent read, retry it: {exc}") from exc
+    except WeclappAPIError as exc:
+        raise SystemExit(f"weclapp API error: {exc}") from exc
 
-    logging.info(f"Successfully fetched {len(sales_orders)} sales orders")
+    print(f"Fetched {len(orders)} sales orders in {stats.requests} requests")
+    for order in orders[:5]:
+        print(f"- {order.get('orderNumber', order.id)} ({order.get('status')})")
 
-    # Display the first 5 sales orders
-    if sales_orders:
-        logging.info("\nFirst 5 sales orders:")
-        for i, order in enumerate(sales_orders[:5], 1):
-            logging.info(f"  {i}. Order #{order.get('orderNumber', 'N/A')}")
-    else:
-        logging.info("No sales orders found")
 
-except WeclappAPIError as e:
-    logging.error(f"Failed to fetch sales orders: {e}")
+if __name__ == "__main__":
+    main()

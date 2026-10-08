@@ -7,6 +7,143 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [1.0.0] - 2026-10-08
+
+First stable release. The public API is now frozen under Semantic Versioning;
+see the [versioning and support policy](README.md#versioning-and-support-policy).
+
+> **Note:** the `[0.7.0] - 2026-07-17` entry that existed on the development
+> branch was never released to PyPI. Its changes are included below; 1.0.0 is
+> the direct successor of 0.6.0.
+
+### Migration
+
+1.0.0 contains breaking changes for every 0.x user. Read
+[Migration from 0.x](README.md#migration-from-0x) before upgrading, and pin
+`weclappy>=1.0,<2`.
+
+### Deprecated
+- The `id=` keyword on `get`, `put`, `delete`, `upload` and `download` still
+  works but emits a `DeprecationWarning`; use `entity_id=`. Removed in 2.0.
+
+### Security
+- **Writes are never retried after an ambiguous outcome.** 0.6.0 mounted a
+  urllib3 `Retry` that repeated `POST`, `PUT` and `DELETE` on 500, 502, 503, 504
+  and 429, so a write that weclapp had already committed could be executed
+  twice (duplicate invoices, double stock bookings). Writes are now retried
+  only when the connection was provably never established.
+- Redirects are never followed, so a `307`/`308` cannot replay a write body
+  and the `AuthenticationToken` cannot follow a redirect to another host.
+- Endpoints must be relative and same-origin; absolute URLs, other hosts,
+  `..` segments and fragments raise `ValueError`.
+- `entity_id` and `action` path segments are percent-encoded; values with `/`,
+  `?` or `#` are rejected, so untrusted ids cannot reach other endpoints.
+- Logs and `RequestMetrics` never contain the API key, query strings or
+  bodies.
+- MIT license, private vulnerability reporting, and PyPI Trusted Publishing
+  with tag, version and changelog gates.
+
+### Added
+- Adaptive load control: `ConcurrencyController` (AIMD per epoch driven by
+  `X-Weclapp-Wait-Ms` and `X-Weclapp-Wait-Reason`), `ConcurrencySettings`,
+  `ConcurrencySnapshot` and `Signal`. `Weclapp(max_concurrency=10)` sets the
+  ceiling; `Weclapp(concurrency=...)` shares one controller between clients
+  of the same tenant. Writes wait for an active 429 cooldown.
+- `RetryPolicy` with separate budgets: transient (5xx and transport, 3 × 0.3 s
+  base), rate limit (429, 5 × 2 s base) and weclapp problem types
+  (`request_timeout`, `persistence`, 1). Every delay is capped by
+  `max_backoff` (60 s). New constructor arguments `rate_limit_retries`,
+  `rate_limit_backoff`, `max_backoff`, `retry_policy`.
+- `get_all(threaded="auto")`, `max_records`, `strategy="ids"`; `get_by_ids()`
+  with 500-id / 8000-byte chunks measured on the weclapp sandbox;
+  `iter_keyset()` (`sort=id` + `id-gt`); `count()`.
+- Unofficial endpoints, clearly labelled: `query()`, `query_count()`,
+  `batch_query()` returning `BatchResult`, `openapi(include_hidden=...)`.
+- Observability: `on_response` hook with `RequestMetrics` per physical
+  attempt, `client.stats` (`StatsSnapshot`), `reset_stats()`.
+- Extension points: `session=`, `before_request=` hook with
+  `OutgoingRequest`, `user_agent=`, and the public `request()` escape hatch
+  with per-request `headers` and `timeout` (float or `(connect, read)`).
+- `Weclapp.for_tenant(tenant, api_key, *, api_version=2)`.
+- Error hierarchy: `WeclappError` base, `WeclappTransportError`
+  (`request_sent`, `outcome_unknown`), `WeclappRateLimitError`,
+  `WeclappNotFoundError`, `WeclappValidationError`,
+  `WeclappOptimisticLockError`, `WeclappRequestTimeoutError`,
+  `WeclappAuthenticationError`, `WeclappRedirectError`,
+  `WeclappPaginationError`, `WeclappConcurrencyTimeoutError`, and
+  `WeclappAPIError.from_response()`.
+- `WeclappEntity.unwrap()` as public API, `refresh_attribute_definitions()`,
+  `WeclappResponse.raw_referenced_entities`, `entity.additional_properties`.
+- `__version__`, `py.typed`, `User-Agent: weclappy/<version>`, and default
+  headers `X-Weclapp-Wait-Timeout-Ms: 30000` and
+  `X-Weclapp-Request-Timeout-Ms: 110000`.
+- `close()` and context-manager support; `iter_all()` generator.
+- Guarded examples for load management, unofficial endpoints and a read-only
+  live contract probe; `docs/load-management.md`.
+
+### Changed (BREAKING)
+- Python ≥ 3.12 is required (was ≥ 3.9).
+- The single module `weclappy.py` became the package `src/weclappy/`. Import
+  public names from `weclappy`.
+- Every constructor argument after `api_key` is keyword-only. In `get_all`
+  everything after `params` is keyword-only; `return_weclapp_response` in
+  `get`, `method`/`data`/`params` in `call_method` and
+  `content_type`/`filename` in `upload` are keyword-only.
+- Parameter renames: `id` → `entity_id` and `endpoint` → `entity`; positions
+  are unchanged.
+- `get_all()` defaults to `threaded="auto"` (0.6.0: sequential): page 1 is
+  read sequentially and only a full first page triggers `/count` and
+  concurrent fetching of the remaining pages.
+- `get_all()`, `iter_all()` and `strategy="ids"` add `sort=id` when neither
+  `sort` nor `orderBy` is given; `{"sort": None}` opts out.
+- `get_all(max_workers=)` must not exceed `max_concurrency`; it raises
+  `ValueError` instead of silently capping.
+- Writes (`POST`, `PUT`, `DELETE`, uploads, `call_method(method="POST")`) are
+  not retried on 5xx, 429, read timeouts or dropped connections; an unknown
+  outcome raises `WeclappTransportError` with `outcome_unknown=True`.
+- Redirects are not followed; a 3xx raises `WeclappRedirectError`.
+- Absolute endpoint URLs are rejected.
+- `base_url` must be the API root ending in `/webapp/api/v<N>`; a bare tenant
+  host raises `ValueError` instead of producing redirects on every request.
+- `_send_request()` and `_check_response()` were removed; use `request()`,
+  `before_request`/`on_response` or `session=`.
+- `WeclappAPIError.wait_ms` is a `float` (0.7.0 branch: `str`).
+- Duplicate ids between pages and count shortfalls raise
+  `WeclappPaginationError` (a `WeclappAPIError` subclass).
+- Custom-attribute flattening uses `customAttributeDefinition.attributeKey`;
+  definitions are loaded once per client under a lock; transient failures
+  propagate instead of silently disabling flattening.
+
+### Fixed
+- **Write retries in 0.6.0** on 5xx and 429 (see Security).
+- **Controller stuck at 1** (0.7.0 branch): after a single 429 or `load`
+  signal the target could never grow again, making long-lived clients serial
+  forever. Growth is now measured per saturated epoch and works at every
+  target.
+- **Uncapped `Retry-After`** (0.7.0 branch): `Retry-After: 3600` blocked all
+  reads for an hour, and `inf` crashed every later `acquire()` with
+  `OverflowError`. Every delay is now capped at `max_backoff` and non-finite
+  values are ignored.
+- Decreases are applied at most once per epoch, so a burst of `load`
+  responses no longer collapses the target in one round trip.
+- `X-Weclapp-Request-Timeout-Ms` stays below the client timeout and is
+  lowered for shorter per-request timeouts.
+- Read permits are released by a context manager on every exit path, and
+  waiting for a permit is bounded by the client timeout
+  (`WeclappConcurrencyTimeoutError`) instead of blocking indefinitely.
+- `POST …/query`, `POST …/count` and `POST batch/query` are treated as reads.
+- Resolved references are cached per `(field, id)`, so reassigning a `*Id`
+  field resolves the new target.
+- Concurrent cold starts load `customAttributeDefinition` once.
+
+### Removed
+- Python 3.9, 3.10 and 3.11 support.
+- The repository-root `__init__.py` and the module `weclappy.py`.
+- Package-root constants `DEFAULT_MAX_WORKERS`, `DEFAULT_MAX_RETRIES`,
+  `DEFAULT_BACKOFF_FACTOR`, `SAFE_RETRY_METHODS`, `TRANSIENT_STATUS_CODES`.
+- Private `_send_request()` and `_check_response()`; positional
+  `threaded`/`max_workers`/`return_weclapp_response` in `get_all`.
+
 ## [0.6.0] - 2026-04-25
 
 ### Added
@@ -176,4 +313,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial project setup
 - Basic project structure
-- Documentation framework 
+- Documentation framework
