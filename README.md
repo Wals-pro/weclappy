@@ -1,13 +1,63 @@
 # weclappy
 
-`weclappy` is a thin, safe Python client for the weclapp REST API. You name an
-endpoint, pass query parameters or a JSON payload, and get Python objects back.
-Underneath, it implements weclapp's load-management contract: an adaptive
-concurrency controller driven by weclapp's queue headers, separate retry budgets
-for reads, writes that are never repeated unless they provably never left the
-process, stable pagination with consistency checks, and per-request metrics. It
-has no generated entity classes and no module-specific business logic. It is an
-independent, community-maintained project and is not affiliated with weclapp.
+**The weclapp REST API client for Python that listens to the tenant's queue and
+never repeats a write it cannot vouch for.** You name an endpoint, pass query
+parameters or a JSON payload, and get typed Python objects back. Underneath,
+weclappy implements weclapp's load-management contract end to end.
+
+```python
+from weclappy import Weclapp
+
+client = Weclapp.for_tenant("acme", api_key)
+orders = client.get_all(
+    "salesOrder",
+    {"status-eq": "ORDER_CONFIRMED", "includeReferencedEntities": "customerId"},
+)
+print(orders[0].customer.name)  # customerId resolves to the referenced party
+```
+
+## Highlights
+
+- **Writes are never repeated blindly.** A 5xx, 429 or read timeout on
+  `POST`/`PUT`/`DELETE` raises instead of retrying; `outcome_unknown` tells you
+  when to read the entity back. Only requests that provably never left the
+  process are retried. No duplicate invoices, no double stock bookings.
+- **Adaptive concurrency, driven by weclapp itself.** An AIMD controller reads
+  `X-Weclapp-Wait-Ms` and `X-Weclapp-Wait-Reason`, grows one slot per clean
+  window and backs off before the tenant lands in the queue. One controller can
+  be shared by every client of a tenant.
+- **Retry budgets that match the API.** 5xx and network failures: 3 × 0.3 s.
+  429: 5 × 2 s with a 60 s cap that also bounds `Retry-After`. weclapp's own
+  transient problem types (`request_timeout`, `persistence`) get one more try.
+- **Pagination you can trust.** `get_all` reads page one, counts only when more
+  pages exist, fetches the rest concurrently in page order, sorts by `id` by
+  default and raises on duplicates or a shortfall. `iter_keyset` streams exports
+  that never lose a row. `max_records` refuses runaway reads before they start.
+- **Batching the way weclapp recommends.** `get_by_ids` and
+  `get_all(strategy="ids")` read ids first and then rows in `id-in` chunks sized
+  from sandbox measurements (500 ids, 8 KB URLs). 3,721 articles in 0.6 s with
+  5 requests on the weclapp sandbox.
+- **Entities that behave.** `WeclappEntity` is a dict with attribute access,
+  flattened custom attributes (all eleven value types round-trip), lazy `*Id`
+  resolution through `referencedEntities`, nested wrapping and `to_payload()`
+  for safe writes.
+- **Observability built in.** `on_response` hands you `RequestMetrics` for every
+  attempt (duration, queue wait, reason, correlation id, retry decision);
+  `client.stats` aggregates request seconds the way weclapp bills load.
+- **Typed errors.** `WeclappRateLimitError`, `WeclappNotFoundError`,
+  `WeclappOptimisticLockError`, `WeclappValidationError`,
+  `WeclappTransportError`, `WeclappPaginationError` and more, all under
+  `WeclappAPIError` with the parsed problem document.
+- **The hidden endpoints, labelled.** `query()` (`POST /{entity}/query`, no URL
+  length limit), `query_count()`, `batch_query()` (up to 500 reads in one call)
+  and `openapi(include_hidden=True)`, each marked as unofficial with a fallback.
+- **Small and strict.** One module family, two runtime dependencies
+  (`requests`, `urllib3`), Python 3.12+, `py.typed`, mypy strict, 97 % test
+  coverage including an in-process fake weclapp server that simulates queueing,
+  429s and dropped connections.
+
+weclappy is independent and community-maintained; it is not affiliated with
+weclapp.
 
 - [Install](#install)
 - [Quick start](#quick-start)
