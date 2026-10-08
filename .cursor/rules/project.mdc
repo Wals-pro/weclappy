@@ -6,102 +6,76 @@ alwaysApply: true
 
 # Weclappy Project Conventions
 
-## Virtual Environment
+## Environment
 
-The project uses a virtual environment located at `.venv` in the project root.
+The project uses a virtual environment at `.venv` in the repository root
+(Python ≥ 3.12):
 
-To activate:
 ```bash
-source /Users/markus/Projects/weclappy/.venv/bin/activate
+uv venv --python 3.12
+source .venv/bin/activate
+uv pip install -e ".[dev]"
 ```
 
-To run tests:
+Checks (the same commands run in CI):
+
 ```bash
-source .venv/bin/activate && python -m pytest tests/ -v
+ruff check src tests examples
+ruff format --check src tests examples
+mypy
+pytest -m "not integration" --cov=weclappy --cov-fail-under=90
 ```
 
-## Library Design Patterns
+## Package layout
 
-### Polymorphic Method Signatures
+The library lives in `src/weclappy/`: `client.py` (`Weclapp`), `concurrency.py`
+(adaptive controller), `retry.py` (retry policy), `errors.py`, `entity.py`
+(`WeclappEntity`, `WeclappResponse`), `metrics.py`, `mime.py`. Public names are
+exported from `weclappy/__init__.py`; everything with a leading underscore is
+private.
 
-All methods that operate on entities follow a consistent pattern with named parameters:
+## Method signatures
 
-- `endpoint` - The entity type (e.g., 'article', 'salesOrder', 'document')
-- `id` - Optional entity ID, always as a named parameter
-- `action` - Optional action/method name for special operations
-- `params` - Query parameters as a dict
+Entity methods share one shape: `entity`, optional `entity_id`, optional
+`action`, then `params`. Options after that are keyword-only.
 
-URL construction follows this pattern:
-- With id and action: `{endpoint}/id/{id}/{action}`
-- With id only: `{endpoint}/id/{id}`
-- With action only: `{endpoint}/{action}`
-- Otherwise: `{endpoint}`
-
-### Examples of Consistent API
+- With id and action: `{entity}/id/{entity_id}/{action}`
+- With id only: `{entity}/id/{entity_id}`
+- With action only: `{entity}/{action}`
+- Otherwise: `{entity}`
 
 ```python
-# GET single entity
-client.get("article", id="123")
-
-# PUT update
-client.put("article", id="123", data={...})
-
-# DELETE
-client.delete("article", id="123")
-
-# Upload with id and action
-client.upload("article", id="123", action="uploadArticleImage", data=bytes, ...)
-
-# Download with id and action
-client.download("salesInvoice", id="123", action="downloadLatestSalesInvoicePdf")
+client.get("article", "123")
+client.put("article", "123", {"version": "4", "name": "New"})
+client.delete("article", "123")
+client.upload("article", data, "123", "uploadArticleImage", filename="a.png")
+client.download("salesInvoice", "123", "downloadLatestSalesInvoicePdf")
 ```
 
-### Minimal Dependencies
+## Safety rules
 
-The library only depends on `requests`. Avoid adding new dependencies unless absolutely necessary.
-
-### Return Types
-
-- Binary responses return `{"content": bytes, "content_type": str}`
-- JSON responses return parsed dicts or lists
-- Structured responses use `WeclappResponse` when `return_weclapp_response=True`
+- Writes are never retried unless the request provably never left the process.
+- Redirects are never followed; endpoints must be relative and same-origin.
+- Never log the API key, query strings or request bodies.
+- Runtime dependencies are `requests` and `urllib3` only; discuss new ones first.
 
 ## Testing
 
-- Unit tests in `tests/test_weclappy_unit.py` use mocks
-- Integration tests in `tests/test_weclappy_integration.py` require live API credentials
-- Run unit tests: `python -m pytest tests/test_weclappy_unit.py -v`
+- Offline tests in `tests/` use mocked transports and an injected clock.
+- `integration` tests need a live sandbox tenant; `write` tests need explicit opt-in.
+- Never run live tests against a production tenant.
 
-## Changelog
+## Changelog and releases
 
-IMPORTANT: Always update `CHANGELOG.md` when making changes to the library.
+- Add user-visible changes under `## Unreleased` in `CHANGELOG.md`
+  (Keep a Changelog: Added, Changed, Deprecated, Removed, Fixed, Security).
+- Mark breaking changes; deprecate with `DeprecationWarning` one minor release
+  before removal.
+- Releases: see `RELEASING.md` (GitHub Release `vX.Y.Z` → Trusted Publishing).
 
-- Add new features under `## Unreleased` section
-- Use Keep a Changelog format: Added, Changed, Deprecated, Removed, Fixed, Security
-- When releasing, move Unreleased items to a new version section with date
-- Be specific about what changed and why it matters to users
+## Library scope
 
-## Deployment
-
-Releases are published automatically via GitHub Actions when a release is created.
-
-1. Update version in `pyproject.toml`
-2. Update `CHANGELOG.md` with release date
-3. Commit, push, and create a GitHub Release with tag `vX.Y.Z`
-
-See `PYPI.md` for detailed instructions.
-
-## Library Scope
-
-Keep weclappy as a **general-purpose API client**. Include only:
-- HTTP operations (get, post, put, delete, upload, download)
-- Pagination handling
-- Error parsing and structured exceptions
-- Content type inference for uploads
-
-Do NOT include application-specific helpers like:
-- Custom attribute access patterns
-- Tag manipulation helpers
-- Business logic or workflow helpers
-
-These belong in the consuming application, not the library.
+Keep weclappy a general-purpose API client: HTTP operations, load management,
+pagination, retries, structured errors, the `WeclappEntity` response wrapper and
+upload content-type inference. Module-specific business logic belongs in the
+consuming application.

@@ -1,25 +1,108 @@
 [build-system]
-requires = ["setuptools>=42"]
+requires = ["setuptools>=77.0.3"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "weclappy"
-version = "0.6.0"
-description = "A Python client for the Weclapp API."
+version = "1.0.0"
+description = "A thin, safe Python client for the weclapp REST API with adaptive load control."
 readme = "README.md"
-license = { text = "MIT" }
+requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
     { name = "Markus Wals", email = "markus@wals.pro" }
 ]
+keywords = ["weclapp", "erp", "api", "client", "rest"]
 dependencies = [
-    "requests>=2.26.0"
+    "requests>=2.31.0",
+    "urllib3>=2.0.0",
 ]
 classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
-    "Operating System :: OS Independent"
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Operating System :: OS Independent",
+    "Topic :: Office/Business",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
 ]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "mypy>=1.10",
+    "ruff>=0.5",
+    "types-requests",
+    "build",
+    "twine",
+]
+
 [project.urls]
 "Homepage" = "https://wals.pro/"
 "Repository" = "https://github.com/Wals-pro/weclappy"
 "Documentation" = "https://github.com/Wals-pro/weclappy#readme"
+"Changelog" = "https://github.com/Wals-pro/weclappy/blob/main/CHANGELOG.md"
+"Issues" = "https://github.com/Wals-pro/weclappy/issues"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+weclappy = ["py.typed"]
+
+[tool.pytest.ini_options]
+addopts = "--strict-markers"
+testpaths = ["tests"]
+markers = [
+    "integration: requires access to a live weclapp tenant",
+    "write: creates, updates, or deletes persistent data and requires explicit opt-in",
+]
+filterwarnings = ["error::DeprecationWarning:weclappy"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "PL", "N", "A", "C4", "T20", "PT"]
+ignore = [
+    "PLR0913",  # many keyword arguments on the client are the API
+    "PLR2004",  # magic HTTP status numbers read better inline
+    "A002",     # `filter` mirrors weclapp's body field name
+    "PLR0911", "PLR0912", "PLR0915", "PLR0917",  # complexity heuristics; dispatch code reads fine
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["PLR0913", "PLR2004", "S101", "T20", "PLR0915", "PLC0415"]
+"examples/**" = ["T20"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+packages = ["weclappy"]
+mypy_path = "src"
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+check_untyped_defs = true
+
+[tool.coverage.run]
+source = ["weclappy"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
+exclude_also = ["if TYPE_CHECKING:", "pragma: no cover"]

@@ -1,4 +1,1 @@
-python-dotenv
-weclappy
-pytest
-pytest-cov
+weclappy>=1.0,<2
